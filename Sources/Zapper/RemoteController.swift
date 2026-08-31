@@ -44,6 +44,9 @@ final class RemoteController: ObservableObject {
     /// into `rankedSuggestions`.
     var windowStart = 0
     var selectedVisibleIndex: Int { selectedIndex - windowStart }
+    /// True once the user arrows through this query's results — only then is
+    /// the selection worth preserving across late-arriving results.
+    var userMovedSelection = false
     @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
     private let discovery = Discovery()

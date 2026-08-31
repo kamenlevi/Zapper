@@ -48,6 +48,7 @@ extension RemoteController {
     func queryChanged(_ text: String) {
         selectedIndex = 0
         windowStart = 0
+        userMovedSelection = false
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []
@@ -126,7 +127,10 @@ extension RemoteController {
     /// The selected row is tracked by identity so results arriving mid-scroll
     /// don't yank the highlight somewhere else.
     private func reassemble(_ query: String, spotifyFirst: Bool = false) {
-        let selectedID = rankedSuggestions.indices.contains(selectedIndex)
+        // Only chase the selected row's identity if the user actually moved
+        // the selection; otherwise stay pinned to the top so late-arriving
+        // results never open the dropdown scrolled to the bottom.
+        let selectedID = userMovedSelection && rankedSuggestions.indices.contains(selectedIndex)
             ? rankedSuggestions[selectedIndex].id : nil
 
         let local = localMatches(query)
@@ -178,8 +182,11 @@ extension RemoteController {
 
         if let selectedID, let index = rankedSuggestions.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = index
-        } else {
+        } else if userMovedSelection {
             selectedIndex = min(selectedIndex, max(rankedSuggestions.count - 1, 0))
+        } else {
+            selectedIndex = 0
+            windowStart = 0
         }
         updateWindow()
     }
@@ -234,6 +241,7 @@ extension RemoteController {
 
     func moveSelection(_ delta: Int) {
         guard !rankedSuggestions.isEmpty else { return }
+        userMovedSelection = true
         selectedIndex = min(max(selectedIndex + delta, 0), rankedSuggestions.count - 1)
         updateWindow()
     }
@@ -244,6 +252,7 @@ extension RemoteController {
         rankedSuggestions = []
         selectedIndex = 0
         windowStart = 0
+        userMovedSelection = false
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []
