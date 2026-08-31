@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ZapperKit
 
@@ -306,6 +307,21 @@ extension RemoteController {
     /// services with a true per-episode link (HBO Max) beat ones that can
     /// only open the show (Netflix). Resume position is the app's own.
     func play(_ hit: ContentHit, episode: EpisodeRef? = nil, via providerName: String? = nil) {
+        // Seed the now-playing panel — a Zapper-initiated launch knows more
+        // than OCR will ever see.
+        nowPlaying.showTitle = hit.title
+        nowPlaying.contentID = hit.id
+        nowPlaying.season = episode?.season
+        nowPlaying.episode = episode?.episode
+        nowPlaying.episodeTitle = nil
+        nowPlaying.position = nil
+        if let url = hit.posterURL {
+            Task { [weak self] in
+                let data = try? await URLSession.shared.data(from: url).0
+                guard let self, self.nowPlaying.contentID == hit.id else { return }
+                self.nowPlayingPoster = data.flatMap { NSImage(data: $0) }
+            }
+        }
         guard let episode else {
             playOffers(hit.offers, title: hit.title, via: providerName)
             return
@@ -331,7 +347,7 @@ extension RemoteController {
         }
     }
 
-    private func playOffers(_ offers: [ContentHit.Offer], title: String, via providerName: String?) {
+    func playOffers(_ offers: [ContentHit.Offer], title: String, via providerName: String?) {
         let candidates: [(offer: ContentHit.Offer, app: DeviceApp)] = offers.compactMap { offer in
             guard let app = appForProvider(offer.providerName) else { return nil }
             return (offer, app)
@@ -346,6 +362,7 @@ extension RemoteController {
             ?? quickApps.compactMap { quick in candidates.first { $0.app.id == quick?.id } }.first
             ?? candidates[0]
 
+        nowPlaying.appID = chosen.app.id
         launch(chosen.app, contentTarget: chosen.offer.url)
         flash("Playing \(title) on \(chosen.app.label).")
     }

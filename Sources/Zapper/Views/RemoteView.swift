@@ -10,6 +10,10 @@ struct RemoteView: View {
         VStack(spacing: 14) {
             header
 
+            if controller.nowPlayingVisible {
+                NowPlayingSection(controller: controller)
+            }
+
             SearchSection(controller: controller)
 
             DPadView { key in controller.press(key) }
@@ -64,10 +68,24 @@ struct RemoteView: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 3) {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .lineLimit(1)
+                    if controller.state.isOn {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 6.5, weight: .bold))
+                            .rotationEffect(.degrees(controller.nowPlayingVisible ? 180 : 0))
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .tapPress {
+                guard controller.state.isOn else { return }
+                withAnimation(.easeOut(duration: 0.16)) {
+                    controller.nowPlayingVisible.toggle()
+                }
             }
 
             Spacer(minLength: 4)

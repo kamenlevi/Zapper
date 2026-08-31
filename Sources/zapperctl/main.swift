@@ -224,6 +224,22 @@ do {
             print("  [\(item.kind.rawValue)\(item.isOwn ? ", yours" : "")] \(item.name) - \(item.detail)  \(item.uri)")
         }
 
+    case "nowplay":
+        guard args.count >= 2 else { usage() }
+        let frame: Data
+        if FileManager.default.fileExists(atPath: args[1]) {
+            frame = try Data(contentsOf: URL(fileURLWithPath: args[1]))
+        } else {
+            let device = try await connected(args[1])
+            frame = try await device.captureScreen()
+            await device.disconnect()
+        }
+        let text = ScreenText.read(jpeg: frame)
+        print("--- OCR ---")
+        print(text)
+        print("--- parsed ---")
+        print(NowPlayingSnapshot.parse(ocrText: text))
+
     case "raw":
         guard args.count >= 3 else { usage() }
         let device = try await connected(args[1])

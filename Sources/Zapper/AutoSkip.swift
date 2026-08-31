@@ -1,7 +1,4 @@
 import Foundation
-import CoreGraphics
-import ImageIO
-import Vision
 import ZapperKit
 
 /// Watches the TV screen while a streaming app is playing and presses OK the
@@ -61,25 +58,9 @@ enum AutoSkip {
         "гледате ли още", "продължи гледането",
     ]
 
-    /// OCRs one captured frame and returns the first enabled prompt found.
-    static func detectPrompt(in jpeg: Data, settings: Settings) -> Prompt? {
-        guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { return nil }
-
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        let handler = VNImageRequestHandler(cgImage: image)
-        guard (try? handler.perform([request])) != nil,
-              let observations = request.results
-        else { return nil }
-
-        let text = observations
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: "\n")
-            .lowercased()
-
+    /// Scans one frame's OCR text for the first enabled prompt.
+    static func detectPrompt(inText ocrText: String, settings: Settings) -> Prompt? {
+        let text = ocrText.lowercased()
         if settings.intros, introPhrases.contains(where: text.contains) { return .intro }
         if settings.recaps, recapPhrases.contains(where: text.contains) { return .recap }
         if settings.stillWatching, stillWatchingPhrases.contains(where: text.contains) { return .stillWatching }

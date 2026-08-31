@@ -203,6 +203,51 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
                 $0.currentChannel = [number, name].compactMap { $0 }.joined(separator: "  ")
             }
         }
+
+        try? await socket.subscribe(SSAP.mediaState) { [weak self] payload in
+            guard let self else { return }
+            let pipelines = (payload["foregroundAppInfo"] as? [JSONDict]) ?? []
+            let playState = pipelines.compactMap { $0["playState"] as? String }.last
+            self.device.mutate {
+                switch playState {
+                case "playing": $0.isMediaPlaying = true
+                case "paused":  $0.isMediaPlaying = false
+                default:        $0.isMediaPlaying = nil
+                }
+            }
+        }
+    }
+
+    /// The programme currently airing on the tuned channel, from the EPG.
+    public func currentProgram() async throws -> TVProgram? {
+        let response = try await socket.request(SSAP.channelProgram)
+        let list = (response["programList"] as? [JSONDict]) ?? []
+
+        // Timestamps come as "2026,09,01,20,00,00" in UTC.
+        func date(_ raw: Any?) -> Date? {
+            guard let text = raw as? String else { return nil }
+            let parts = text.split(separator: ",").compactMap { Int($0) }
+            guard parts.count >= 6 else { return nil }
+            var components = DateComponents()
+            components.year = parts[0]; components.month = parts[1]; components.day = parts[2]
+            components.hour = parts[3]; components.minute = parts[4]; components.second = parts[5]
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: "UTC")!
+            return calendar.date(from: components)
+        }
+
+        let now = Date()
+        for entry in list {
+            guard let name = entry["programName"] as? String,
+                  let start = date(entry["startTime"]) else { continue }
+            let end = date(entry["endTime"])
+                ?? (entry["duration"] as? Double).map { start.addingTimeInterval($0) }
+                ?? start.addingTimeInterval(1800)
+            if start <= now, now < end {
+                return TVProgram(name: name, start: start, end: end)
+            }
+        }
+        return nil
     }
 
     // MARK: - Commands

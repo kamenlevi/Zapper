@@ -77,7 +77,20 @@ public struct DeviceState: Equatable, Sendable {
     public var currentAppID: String? = nil
     public var currentAppLabel: String? = nil
     public var currentChannel: String? = nil
+    /// From the media pipeline: true while the foreground app reports
+    /// "playing", false when paused, nil when nothing is known.
+    public var isMediaPlaying: Bool? = nil
     public init() {}
+}
+
+/// One EPG entry for the channel currently tuned.
+public struct TVProgram: Sendable, Equatable {
+    public let name: String
+    public let start: Date
+    public let end: Date
+    public init(name: String, start: Date, end: Date) {
+        self.name = name; self.start = start; self.end = end
+    }
 }
 
 public enum ConnectionState: Equatable, Sendable {

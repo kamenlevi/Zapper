@@ -49,6 +49,16 @@ final class RemoteController: ObservableObject {
     var userMovedSelection = false
     @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
+    // Now-playing panel state; logic in NowPlaying.swift.
+    @Published var nowPlayingVisible = false
+    @Published var nowPlaying = NowPlayingState()
+    @Published var nowPlayingPoster: NSImage?
+    @Published var episodeStrip: [EpisodeInfo] = []
+    @Published var currentProgram: TVProgram?
+    @Published var liveThumbnail: NSImage?
+    var episodeStripKey: String?
+    var nowPlayingResolving = false
+
     @Published var autoSkip = AutoSkip.Settings.load() {
         didSet {
             let defaults = UserDefaults.standard
@@ -104,40 +114,63 @@ final class RemoteController: ObservableObject {
                 self.autoSelectIfNeeded()
             }
         })
-        observations.append(Task { [weak self] in await self?.runAutoSkipLoop() })
+        observations.append(Task { [weak self] in await self?.runScreenWatchLoop() })
         discovery.start()
     }
 
-    /// Polls a frame off the TV every couple of seconds while a streaming
-    /// app is up, and presses OK when a skippable prompt is on screen.
-    private func runAutoSkipLoop() async {
+    /// Polls frames off the TV while they're useful: auto-skip watches for
+    /// skippable prompts, and the now-playing panel harvests title/timeline
+    /// facts from transport overlays plus a live thumbnail on the tuner.
+    private func runScreenWatchLoop() async {
         var lastPress = Date.distantPast
+        var lastEPG = Date.distantPast
         while !Task.isCancelled {
             let settings = autoSkip
-            let watching = settings.enabled
-                && isConnected
-                && state.isOn
-                && AutoSkip.videoApps.contains(state.currentAppID ?? "")
+            let appID = state.currentAppID
+            let isVideo = AutoSkip.videoApps.contains(appID ?? "")
+            let isLiveTV = appID == "com.webos.app.livetv"
+            let wantSkip = settings.enabled && isVideo
+            let wantInfo = nowPlayingVisible && (isVideo || isLiveTV)
 
-            guard watching else {
+            guard isConnected, state.isOn, wantSkip || wantInfo else {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 continue
             }
-            // A press hides the prompt; don't fire again while the app is
-            // still reacting.
-            if Date().timeIntervalSince(lastPress) > 8,
-               let device,
-               let frame = try? await device.captureScreen() {
-                let prompt = await Task.detached(priority: .utility) {
-                    AutoSkip.detectPrompt(in: frame, settings: settings)
-                }.value
-                if let prompt {
-                    press(.ok)
-                    lastPress = Date()
-                    flash(prompt.message)
+
+            if nowPlaying.appID != appID {
+                clearNowPlayingContext(newAppID: appID)
+            }
+
+            if let device, let frame = try? await device.captureScreen() {
+                if isLiveTV, wantInfo {
+                    liveThumbnail = NSImage(data: frame)
+                }
+                if isVideo {
+                    let text = await Task.detached(priority: .utility) {
+                        ScreenText.read(jpeg: frame)
+                    }.value
+                    // A press hides the prompt; don't fire again while the
+                    // app is still reacting.
+                    if wantSkip, Date().timeIntervalSince(lastPress) > 8,
+                       let prompt = AutoSkip.detectPrompt(inText: text, settings: settings) {
+                        press(.ok)
+                        lastPress = Date()
+                        flash(prompt.message)
+                    }
+                    let snapshot = NowPlayingSnapshot.parse(ocrText: text)
+                    if !snapshot.isEmpty {
+                        nowPlaying.merge(snapshot)
+                        resolveNowPlayingContext()
+                    }
                 }
             }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+            if isLiveTV, wantInfo, Date().timeIntervalSince(lastEPG) > 30, let device {
+                lastEPG = Date()
+                currentProgram = (try? await device.currentProgram()) ?? nil
+            }
+
+            try? await Task.sleep(nanoseconds: wantInfo ? 1_500_000_000 : 2_000_000_000)
         }
     }
 

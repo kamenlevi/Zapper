@@ -15,11 +15,21 @@ public struct ContentHit: Identifiable, Hashable, Sendable {
     public let year: Int?
     public let isShow: Bool
     public let offers: [Offer]
+    public let posterURL: URL?
 
-    public init(id: String, title: String, year: Int?, isShow: Bool, offers: [Offer]) {
+    public init(id: String, title: String, year: Int?, isShow: Bool,
+                offers: [Offer], posterURL: URL? = nil) {
         self.id = id; self.title = title; self.year = year
-        self.isShow = isShow; self.offers = offers
+        self.isShow = isShow; self.offers = offers; self.posterURL = posterURL
     }
+}
+
+/// One episode of a season: its name plus where it can stream.
+public struct EpisodeInfo: Sendable, Hashable, Identifiable {
+    public let number: Int
+    public let title: String
+    public let offers: [ContentHit.Offer]
+    public var id: Int { number }
 }
 
 /// Streaming availability search backed by JustWatch's public GraphQL
@@ -34,7 +44,7 @@ public enum ContentSearch {
       popularTitles(country: $country, first: 8, filter: {searchQuery: $q}) {
         edges { node {
           id objectType
-          content(country: $country, language: "en") { title originalReleaseYear }
+          content(country: $country, language: "en") { title originalReleaseYear posterUrl }
           ... on MovieOrShow {
             offers(country: $country, platform: WEB) {
               monetizationType standardWebURL package { clearName }
@@ -74,6 +84,15 @@ public enum ContentSearch {
         }
     }
 
+    /// "/poster/300603462/{profile}/name.{format}" → a fetchable image URL.
+    private static func posterURL(_ template: String?) -> URL? {
+        guard let template else { return nil }
+        let path = template
+            .replacingOccurrences(of: "{profile}", with: "s332")
+            .replacingOccurrences(of: "{format}", with: "webp")
+        return URL(string: "https://images.justwatch.com" + path)
+    }
+
     public static func search(_ text: String, country: String) async throws -> [ContentHit] {
         let payload = try await request(query, variables: ["country": country, "q": text])
         guard let titles = payload["popularTitles"] as? [String: Any],
@@ -95,7 +114,8 @@ public enum ContentSearch {
                 title: title,
                 year: content["originalReleaseYear"] as? Int,
                 isShow: (node["objectType"] as? String) == "SHOW",
-                offers: offers
+                offers: offers,
+                posterURL: posterURL(content["posterUrl"] as? String)
             )
         }
     }
@@ -106,6 +126,14 @@ public enum ContentSearch {
     public static func episodeOffers(
         showID: String, season: Int, episode: Int, country: String
     ) async throws -> [ContentHit.Offer] {
+        try await seasonEpisodes(showID: showID, season: season, country: country)
+            .first { $0.number == episode }?.offers ?? []
+    }
+
+    /// Every episode of one season — names and per-service links.
+    public static func seasonEpisodes(
+        showID: String, season: Int, country: String
+    ) async throws -> [EpisodeInfo] {
         let seasonsQuery = """
         query($id: ID!, $country: Country!) {
           node(id: $id) { ... on Show {
@@ -126,7 +154,7 @@ public enum ContentSearch {
         query($id: ID!, $country: Country!) {
           node(id: $id) { ... on Season {
             episodes {
-              content(country: $country, language: "en") { episodeNumber }
+              content(country: $country, language: "en") { episodeNumber title }
               offers(country: $country, platform: WEB) {
                 monetizationType standardWebURL package { clearName }
               }
@@ -136,12 +164,17 @@ public enum ContentSearch {
         """
         let episodesPayload = try await request(episodesQuery, variables: ["id": seasonID, "country": country])
         guard let seasonNode = episodesPayload["node"] as? [String: Any],
-              let episodes = seasonNode["episodes"] as? [[String: Any]],
-              let hit = episodes.first(where: {
-                  (($0["content"] as? [String: Any])?["episodeNumber"] as? Int) == episode
-              })
+              let episodes = seasonNode["episodes"] as? [[String: Any]]
         else { return [] }
 
-        return parseOffers(hit["offers"] as? [[String: Any]])
+        return episodes.compactMap { entry in
+            guard let content = entry["content"] as? [String: Any],
+                  let number = content["episodeNumber"] as? Int else { return nil }
+            return EpisodeInfo(
+                number: number,
+                title: (content["title"] as? String) ?? "Episode \(number)",
+                offers: parseOffers(entry["offers"] as? [[String: Any]])
+            )
+        }
     }
 }
