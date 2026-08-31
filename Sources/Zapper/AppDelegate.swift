@@ -26,7 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentViewController = hosting
         popover.behavior = .transient
-        popover.animates = true
+        // Never animate: NSPopover animates size changes by tweening the
+        // window frame while SwiftUI is already laid out at the final
+        // positions, so any inline expansion (now-playing panel, search
+        // results) renders content sliding over the header.
+        popover.animates = false
 
         controller.start()
 

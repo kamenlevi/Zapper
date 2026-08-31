@@ -34,7 +34,6 @@ struct RemoteView: View {
                         showNumberPad = false
                     }
                 )
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             sourcesRow
@@ -51,8 +50,6 @@ struct RemoteView: View {
         }
         .padding(16)
         .frame(width: 300)
-        .animation(.easeOut(duration: 0.16), value: showNumberPad)
-        .animation(.easeOut(duration: 0.16), value: controller.transientMessage)
     }
 
     // MARK: - Header
