@@ -140,7 +140,7 @@ extension RemoteController {
             spotify = []
         } else if case .spotify(let item)? = spotify.first,
                   item.kind == .artist || item.isOwn,
-                  item.name.lowercased().hasPrefix(query.lowercased()) {
+                  item.name.searchNormalized.hasPrefix(query.searchNormalized) {
             // A Spotify artist (or own playlist) whose name starts with the
             // query is almost certainly what was typed — "the weeknd" ⏎
             // should be his page.
@@ -150,9 +150,14 @@ extension RemoteController {
         rows += local.prefix(2)
         rows += contentBucket.prefix(2)
         rows += spotify.prefix(2)
-        // Everything else stays ranked below, revealed on demand.
-        rows += contentBucket.dropFirst(2)
-        rows += spotify.dropFirst(2)
+        // Everything else stays ranked below, revealed on demand —
+        // alternating, so video leftovers can't bury the music results.
+        var contentExtra = Array(contentBucket.dropFirst(2))
+        var spotifyExtra = Array(spotify.dropFirst(2))
+        while !contentExtra.isEmpty || !spotifyExtra.isEmpty {
+            if !spotifyExtra.isEmpty { rows.append(spotifyExtra.removeFirst()) }
+            if !contentExtra.isEmpty { rows.append(contentExtra.removeFirst()) }
+        }
         rows += local.dropFirst(2)
 
         // In-app hand-offs at the very end — Spotify's only until the

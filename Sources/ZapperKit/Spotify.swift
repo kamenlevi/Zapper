@@ -246,8 +246,8 @@ public final class SpotifyClient: @unchecked Sendable {
             return "Playlist · \(owner)"
         }
 
-        let lower = text.lowercased()
-        let own = ((try? await ownTask) ?? []).filter { $0.name.lowercased().contains(lower) }
+        let norm = text.searchNormalized
+        let own = ((try? await ownTask) ?? []).filter { $0.name.searchNormalized.contains(norm) }
 
         var out: [SpotifyItem]
         if let kind {
@@ -261,15 +261,30 @@ public final class SpotifyClient: @unchecked Sendable {
             }
         } else {
             // The user's own playlists first, then an artist when the query
-            // looks like one, then songs, playlists, albums.
+            // looks like one.
             out = Array(own.prefix(2))
-            if let artist = artists.first, artist.name.lowercased().hasPrefix(lower) {
+            if let artist = artists.first, artist.name.searchNormalized.hasPrefix(norm) {
                 out.append(artist)
             }
-            out += tracks
-            out += artists
-            out += playlists
-            out += albums
+            // Round-robin the rest so every type surfaces early (albums used
+            // to always sink), then let name matches float above Spotify's
+            // per-type relevance. Normalised, so "kissland" == "Kiss Land".
+            var pool: [SpotifyItem] = []
+            for index in 0..<3 {
+                for list in [tracks, artists, albums, playlists] where list.count > index {
+                    pool.append(list[index])
+                }
+            }
+            func matchScore(_ item: SpotifyItem) -> Int {
+                let name = item.name.searchNormalized
+                if name == norm { return 3 }
+                if name.hasPrefix(norm) || norm.hasPrefix(name) { return 2 }
+                if name.contains(norm) || norm.contains(name) { return 1 }
+                return 0
+            }
+            out += pool.enumerated()
+                .sorted { (matchScore($0.element), -$0.offset) > (matchScore($1.element), -$1.offset) }
+                .map(\.element)
         }
         // The same playlist can arrive as "yours" and again from public
         // search — identical URIs make identical UI rows, so keep the first.
@@ -369,6 +384,14 @@ public final class SpotifyClient: @unchecked Sendable {
         var bytes = [UInt8](repeating: 0, count: count)
         _ = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
         return Data(bytes).base64URL
+    }
+}
+
+public extension String {
+    /// Lowercased with everything but letters and digits stripped — the
+    /// comparison form for search matching, so "Kiss Land" == "kissland".
+    var searchNormalized: String {
+        String(unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }).lowercased()
     }
 }
 
