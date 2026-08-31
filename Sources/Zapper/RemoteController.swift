@@ -38,6 +38,8 @@ final class RemoteController: ObservableObject {
     var spotifyTask: Task<Void, Never>?
     var contentBucket: [Suggestion] = []
     var spotifyBucket: [Suggestion] = []
+    var rankedSuggestions: [Suggestion] = []
+    var visibleCount = 6
     @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
     private let discovery = Discovery()

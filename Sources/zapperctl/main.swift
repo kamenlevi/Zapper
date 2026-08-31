@@ -219,7 +219,8 @@ do {
 
     case "spotify":
         guard args.count >= 2 else { usage() }
-        for item in try await SpotifyClient.shared.search(args[1]) {
+        let kind = args.count >= 3 ? SpotifyItem.Kind(rawValue: args[2]) : nil
+        for item in try await SpotifyClient.shared.search(args[1], kind: kind) {
             print("  [\(item.kind.rawValue)\(item.isOwn ? ", yours" : "")] \(item.name) - \(item.detail)  \(item.uri)")
         }
 

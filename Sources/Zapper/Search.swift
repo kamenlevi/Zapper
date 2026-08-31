@@ -47,15 +47,18 @@ extension RemoteController {
 
     func queryChanged(_ text: String) {
         selectedIndex = 0
+        visibleCount = Self.maxRows
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []
         spotifyBucket = []
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { suggestions = []; return }
+        guard !trimmed.isEmpty else { suggestions = []; rankedSuggestions = []; return }
 
-        let (title, episodeRef) = Self.parseEpisode(trimmed)
-        reassemble(trimmed)
+        let (rawTitle, episodeRef) = Self.parseEpisode(trimmed)
+        let (title, spotifyKind, wantsShow) = Self.parseKindHint(rawTitle)
+        let spotifyFirst = spotifyKind != nil
+        reassemble(trimmed, spotifyFirst: spotifyFirst)
 
         // Digits are channel tuning; content search wants at least two letters.
         guard title.count >= 2, !title.allSatisfy(\.isNumber) else { return }
@@ -66,6 +69,7 @@ extension RemoteController {
             let hits = (try? await ContentSearch.search(title, country: country)) ?? []
             guard !Task.isCancelled, let self else { return }
             self.contentBucket = hits.compactMap { hit in
+                if let wantsShow, hit.isShow != wantsShow { return nil }
                 let installed = hit.offers.filter { self.appForProvider($0.providerName) != nil }
                 guard !installed.isEmpty else { return nil }
                 let pruned = ContentHit(id: hit.id, title: hit.title, year: hit.year,
@@ -73,16 +77,37 @@ extension RemoteController {
                 // An episode request only makes sense against a show.
                 return .content(pruned, hit.isShow ? episodeRef : nil)
             }
-            self.reassemble(trimmed)
+            self.reassemble(trimmed, spotifyFirst: spotifyFirst)
         }
         guard SpotifyClient.shared.isConnected else { return }
         spotifyTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard !Task.isCancelled else { return }
-            let items = (try? await SpotifyClient.shared.search(trimmed)) ?? []
+            let items = (try? await SpotifyClient.shared.search(title, kind: spotifyKind)) ?? []
             guard !Task.isCancelled, let self else { return }
             self.spotifyBucket = items.map(Suggestion.spotify)
-            self.reassemble(trimmed)
+            self.reassemble(trimmed, spotifyFirst: spotifyFirst)
+        }
+    }
+
+    /// A trailing type word narrows the search: "kissland album" means the
+    /// album Kiss Land, "dune movie" the film. Only applies when something
+    /// is left after stripping it.
+    static func parseKindHint(_ query: String)
+        -> (title: String, spotify: SpotifyItem.Kind?, wantsShow: Bool?) {
+        let words = query.split(separator: " ")
+        guard words.count >= 2, let last = words.last?.lowercased() else {
+            return (query, nil, nil)
+        }
+        let stripped = words.dropLast().joined(separator: " ")
+        switch last {
+        case "album", "albums":                     return (stripped, .album, nil)
+        case "song", "songs", "track", "tracks":    return (stripped, .track, nil)
+        case "playlist", "playlists":               return (stripped, .playlist, nil)
+        case "artist", "artists":                   return (stripped, .artist, nil)
+        case "movie", "movies", "film":             return (stripped, nil, false)
+        case "show", "shows", "series":             return (stripped, nil, true)
+        default:                                    return (query, nil, nil)
         }
     }
 
@@ -96,41 +121,62 @@ extension RemoteController {
         return (String(match.1), EpisodeRef(season: season, episode: episode))
     }
 
-    private func reassemble(_ query: String) {
+    /// Rebuilds the full ranked list, then shows the first `visibleCount`
+    /// rows. Arrowing past the bottom reveals the rest (see moveSelection).
+    /// The selected row is tracked by identity so results arriving mid-scroll
+    /// don't yank the highlight somewhere else.
+    private func reassemble(_ query: String, spotifyFirst: Bool = false) {
+        let selectedID = suggestions.indices.contains(selectedIndex)
+            ? suggestions[selectedIndex].id : nil
+
         let local = localMatches(query)
+        var spotify = spotifyBucket
         var rows: [Suggestion] = []
 
-        // A Spotify artist whose name starts with the query is almost
-        // certainly what was typed — "the weeknd" ⏎ should be his page.
-        var spotify = spotifyBucket
-        if case .spotify(let item)? = spotify.first,
-           item.kind == .artist || item.isOwn,
-           item.name.lowercased().hasPrefix(query.lowercased()) {
+        if spotifyFirst {
+            // The query named a Spotify type ("kissland album") — those
+            // results are the point.
+            rows += spotify
+            spotify = []
+        } else if case .spotify(let item)? = spotify.first,
+                  item.kind == .artist || item.isOwn,
+                  item.name.lowercased().hasPrefix(query.lowercased()) {
+            // A Spotify artist (or own playlist) whose name starts with the
+            // query is almost certainly what was typed — "the weeknd" ⏎
+            // should be his page.
             rows.append(spotify.removeFirst())
         }
 
         rows += local.prefix(2)
         rows += contentBucket.prefix(2)
         rows += spotify.prefix(2)
+        // Everything else stays ranked below, revealed on demand.
+        rows += contentBucket.dropFirst(2)
+        rows += spotify.dropFirst(2)
+        rows += local.dropFirst(2)
 
-        // Backfill whatever room is left, most useful bucket first.
-        for extras in [contentBucket.dropFirst(2), spotify.dropFirst(2), local.dropFirst(2)] {
-            guard rows.count < Self.maxRows else { break }
-            rows += extras.prefix(Self.maxRows - rows.count)
-        }
-
-        // One in-app hand-off at the end when an app supports it — Spotify's
-        // only until the account is connected (then results come inline).
+        // In-app hand-offs at the very end — Spotify's only until the
+        // account is connected (then results come inline).
         if query.count >= 2, !query.allSatisfy(\.isNumber) {
             for (appID, _) in Self.inAppSearchTargets {
-                if rows.count >= Self.maxRows { break }
                 if appID == "spotify-beehive", SpotifyClient.shared.isConnected { continue }
                 if let app = apps.first(where: { $0.id == appID }) {
                     rows.append(.inAppSearch(app, query))
                 }
             }
         }
-        suggestions = Array(rows.prefix(Self.maxRows))
+
+        // Duplicate identities make SwiftUI's list (and the selection
+        // highlight) misbehave; keep the highest-ranked occurrence.
+        var seen = Set<String>()
+        rankedSuggestions = rows.filter { seen.insert($0.id).inserted }
+        suggestions = Array(rankedSuggestions.prefix(visibleCount))
+
+        if let selectedID, let index = suggestions.firstIndex(where: { $0.id == selectedID }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = min(selectedIndex, max(suggestions.count - 1, 0))
+        }
     }
 
     private func localMatches(_ query: String) -> [Suggestion] {
@@ -173,13 +219,21 @@ extension RemoteController {
 
     func moveSelection(_ delta: Int) {
         guard !suggestions.isEmpty else { return }
-        selectedIndex = min(max(selectedIndex + delta, 0), suggestions.count - 1)
+        let target = selectedIndex + delta
+        // Past the bottom: reveal the next ranked row instead of stopping.
+        if target >= suggestions.count, rankedSuggestions.count > suggestions.count {
+            visibleCount = suggestions.count + 1
+            suggestions = Array(rankedSuggestions.prefix(visibleCount))
+        }
+        selectedIndex = min(max(target, 0), suggestions.count - 1)
     }
 
     func clearSearch() {
         searchText = ""
         suggestions = []
+        rankedSuggestions = []
         selectedIndex = 0
+        visibleCount = Self.maxRows
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []

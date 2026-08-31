@@ -213,11 +213,14 @@ public final class SpotifyClient: @unchecked Sendable {
 
     /// Top results across artists, tracks, albums and public playlists, with
     /// the user's own matching playlists ranked first — the same shape the
-    /// Spotify app's search page gives you.
-    public func search(_ text: String) async throws -> [SpotifyItem] {
+    /// Spotify app's search page gives you. Pass `kind` when the user
+    /// qualified the query ("kissland album") to search that type alone.
+    public func search(_ text: String, kind: SpotifyItem.Kind? = nil) async throws -> [SpotifyItem] {
         async let ownTask = myPlaylists()
         let response = try await api("search", query: [
-            "q": text, "type": "artist,track,album,playlist", "limit": "3",
+            "q": text,
+            "type": kind?.rawValue ?? "artist,track,album,playlist",
+            "limit": kind == nil ? "3" : "6",
         ]) as? [String: Any] ?? [:]
 
         func items(_ box: String, _ kind: SpotifyItem.Kind, detail: ([String: Any]) -> String) -> [SpotifyItem] {
@@ -246,17 +249,32 @@ public final class SpotifyClient: @unchecked Sendable {
         let lower = text.lowercased()
         let own = ((try? await ownTask) ?? []).filter { $0.name.lowercased().contains(lower) }
 
-        // The user's own playlists first, then an artist when the query looks
-        // like one, then songs, playlists, albums.
-        var out: [SpotifyItem] = Array(own.prefix(2))
-        if let artist = artists.first, artist.name.lowercased().hasPrefix(lower) {
-            out.append(artist)
+        var out: [SpotifyItem]
+        if let kind {
+            // A qualified query: that type only, own playlists still first.
+            out = kind == .playlist ? Array(own.prefix(3)) : []
+            switch kind {
+            case .artist:   out += artists
+            case .track:    out += tracks
+            case .album:    out += albums
+            case .playlist: out += playlists
+            }
+        } else {
+            // The user's own playlists first, then an artist when the query
+            // looks like one, then songs, playlists, albums.
+            out = Array(own.prefix(2))
+            if let artist = artists.first, artist.name.lowercased().hasPrefix(lower) {
+                out.append(artist)
+            }
+            out += tracks
+            out += artists
+            out += playlists
+            out += albums
         }
-        out += tracks.prefix(2)
-        out += artists.filter { hit in !out.contains(hit) }.prefix(1)
-        out += playlists.prefix(1)
-        out += albums.prefix(1)
-        return out
+        // The same playlist can arrive as "yours" and again from public
+        // search — identical URIs make identical UI rows, so keep the first.
+        var seenURIs = Set<String>()
+        return out.filter { seenURIs.insert($0.uri).inserted }
     }
 
     /// The signed-in user's playlists, cached for five minutes.
