@@ -113,6 +113,16 @@ extension RemoteController {
             "youtube": "youtube.leanback.v4",
         ]
         let words = query.split(separator: " ").map(String.init)
+        // Dash form: "severance -netflix" / "friends -hbo max". Everything
+        // from the first dash token onward names the service.
+        if let dashIndex = words.firstIndex(where: { $0.hasPrefix("-") && $0.count > 1 }), dashIndex > 0 {
+            let name = words[dashIndex...].joined(separator: " ")
+                .replacingOccurrences(of: "-", with: "").lowercased()
+                .trimmingCharacters(in: .whitespaces)
+            if let appID = providers[name] {
+                return (words[..<dashIndex].joined(separator: " "), appID)
+            }
+        }
         for take in [2, 1] where words.count > take {
             let tail = words.suffix(take).joined(separator: " ").lowercased()
             if let appID = providers[tail] {
@@ -399,7 +409,7 @@ extension RemoteController {
             ?? candidates[0]
 
         startPlayback(app: chosen.app, offer: chosen.offer, title: title, query: query ?? title,
-                      wantsShow: wantsShow)
+                      wantsShow: wantsShow, exclusive: providerName != nil)
     }
 
     /// JustWatch service names → webOS app ids, with a label match as the

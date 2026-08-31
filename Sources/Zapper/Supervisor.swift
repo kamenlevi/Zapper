@@ -18,9 +18,10 @@ extension RemoteController {
     /// Kicks off playback via the mechanism that works for the app, then
     /// supervises the launch.
     func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String, query: String,
-                       wantsShow: Bool? = nil) {
+                       wantsShow: Bool? = nil, exclusive: Bool = false) {
         nowPlaying.appID = app.id
-        universalPlay(title: title, query: query, preferApp: app, wantsShow: wantsShow)
+        universalPlay(title: title, query: query, preferApp: app, wantsShow: wantsShow,
+                      exclusive: exclusive)
     }
 
     /// Babysits an app launch: answers the profile gate, presses the parked

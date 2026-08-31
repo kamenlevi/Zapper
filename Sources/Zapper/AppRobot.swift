@@ -8,7 +8,8 @@ import ZapperKit
 /// side (profile gate, title-page play button).
 extension RemoteController {
 
-    func universalPlay(title: String, query: String, preferApp: DeviceApp? = nil, wantsShow: Bool? = nil) {
+    func universalPlay(title: String, query: String, preferApp: DeviceApp? = nil,
+                       wantsShow: Bool? = nil, exclusive: Bool = false) {
         supervisorTask?.cancel()
         guard let device = activeDevice else { return }
         let search = UniversalSearch(device: device) { [weak self] status in
@@ -22,7 +23,7 @@ extension RemoteController {
             defer { Task { try? await device.screenOn() } }
             let handedOff = await search.play(
                 query: query, preferAppID: preferApp?.id, preferAppLabel: preferApp?.label,
-                wantsShow: wantsShow
+                wantsShow: wantsShow, exclusive: exclusive
             )
             guard let self, !Task.isCancelled else { return }
             guard handedOff else {

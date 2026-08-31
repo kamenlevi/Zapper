@@ -23,7 +23,7 @@ public final class UniversalSearch {
     /// launched first, so the results' "Current App" row belongs to it and
     /// the hand-off can't drift to whatever app happened to be open.
     public func play(query: String, preferAppID: String? = nil, preferAppLabel: String? = nil,
-                     wantsShow: Bool? = nil) async -> Bool {
+                     wantsShow: Bool? = nil, exclusive: Bool = false) async -> Bool {
         // Pre-launching pins the results' "Current App" row to the target —
         // skip the cost when it's already the foreground app.
         if let preferAppID, device.deviceState.currentAppID != preferAppID {
@@ -46,14 +46,37 @@ public final class UniversalSearch {
 
         try? await device.imeEnter()
         try? await sleep(900)
-        await tap(.down)          // onto the suggestion list
+
+        // The list under the field holds LG's suggestions — the first one is
+        // sometimes a similar-but-different title, so pick the one that
+        // actually matches the query instead of blindly taking the top.
+        var downs = 1
+        if let frame = try? await device.captureScreen() {
+            let want = query.searchNormalized
+            let candidates = ScreenText.lines(jpeg: frame)
+                .filter { $0.box.maxY < 0.88 && $0.box.maxY > 0.5
+                    && $0.text.count >= 2 && $0.text.count <= 60 }
+                .sorted { $0.box.maxY > $1.box.maxY }
+            var bestScore = 0
+            for (index, line) in candidates.enumerated() {
+                let name = line.text.replacingOccurrences(of: "…", with: "").searchNormalized
+                let score: Int
+                if name == want { score = 3 }
+                else if name.hasPrefix(want) || want.hasPrefix(name) { score = 2 }
+                else if name.contains(want) || want.contains(name) { score = 1 }
+                else { score = 0 }
+                if score > bestScore { bestScore = score; downs = index + 1 }
+            }
+        }
+        for _ in 0..<downs { await tap(.down) }
         await tap(.ok, ms: 3200)  // open full results
 
         // Find the result card whose label matches the query best.
         guard let frame = try? await device.captureScreen() else { return false }
         let lines = ScreenText.lines(jpeg: frame)
         guard let target = Self.bestCard(for: query, in: lines,
-                                          preferAppLabel: preferAppLabel, wantsShow: wantsShow) else {
+                                          preferAppLabel: preferAppLabel, wantsShow: wantsShow,
+                                          exclusive: exclusive) else {
             // No labels read? Take the focused first card as a best effort.
             await tap(.ok, ms: 1000)
             return true
@@ -72,7 +95,8 @@ public final class UniversalSearch {
     /// ("Current App (Netflix)", "TV Shows", "Movies") separate rows. Focus
     /// starts on the first card of the first row.
     static func bestCard(for query: String, in lines: [ScreenText.Line],
-                         preferAppLabel: String? = nil, wantsShow: Bool? = nil) -> CardTarget? {
+                         preferAppLabel: String? = nil, wantsShow: Bool? = nil,
+                         exclusive: Bool = false) -> CardTarget? {
         let headers = ["current app", "tv shows", "movies", "apps", "live", "youtube"]
         let headerLines = lines.filter { line in
             headers.contains(where: line.text.lowercased().contains)
@@ -123,12 +147,18 @@ public final class UniversalSearch {
                 .filter { Double($0.box.minY) > rowTop }
                 .min { Double($0.box.minY) - rowTop < Double($1.box.minY) - rowTop }
             var tiebreak = 0
-            if let preferLabel, let header, header.text.lowercased().contains(preferLabel) {
+            let isPreferredRow = preferLabel.flatMap { label in
+                header.map { $0.text.lowercased().contains(label) }
+            } ?? false
+            if isPreferredRow {
                 tiebreak += 4
                 if preferredRowFirstCard == nil, let first = row.first {
                     preferredRowFirstCard = CardTarget(row: rowIndex, column: 0, title: first.title)
                 }
             }
+            // An explicit "-netflix" means that app and no other: rows that
+            // aren't its own don't get considered at all.
+            if exclusive, preferLabel != nil, !isPreferredRow { continue }
             if let wantsShow, let header {
                 let headerText = header.text.lowercased()
                 if wantsShow, headerText.contains("tv shows") { tiebreak += 2 }
