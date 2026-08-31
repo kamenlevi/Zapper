@@ -16,6 +16,7 @@ enum Suggestion: Identifiable, Hashable {
     case app(DeviceApp)
     case input(DeviceInput)
     case content(ContentHit, EpisodeRef?)
+    case spotify(SpotifyItem)
     case inAppSearch(DeviceApp, String)
 
     var id: String {
@@ -24,6 +25,7 @@ enum Suggestion: Identifiable, Hashable {
         case .app(let a):           return "app-\(a.id)"
         case .input(let i):         return "input-\(i.id)"
         case .content(let h, let e): return "content-\(h.id)-\(e.map { "s\($0.season)e\($0.episode)" } ?? "")"
+        case .spotify(let s):       return "spotify-\(s.uri)"
         case .inAppSearch(let a, _): return "inapp-\(a.id)"
         }
     }
@@ -33,7 +35,6 @@ extension RemoteController {
 
     /// Keeps the dropdown a dropdown, not a page.
     private static let maxRows = 6
-    private static let maxLocalRows = 3
 
     /// Apps whose search can be deep-linked into directly. %@ is replaced
     /// with the percent-encoded query.
@@ -47,11 +48,14 @@ extension RemoteController {
     func queryChanged(_ text: String) {
         selectedIndex = 0
         contentTask?.cancel()
+        spotifyTask?.cancel()
+        contentBucket = []
+        spotifyBucket = []
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { suggestions = []; return }
 
         let (title, episodeRef) = Self.parseEpisode(trimmed)
-        suggestions = assemble(local: localMatches(trimmed), content: [], query: trimmed)
+        reassemble(trimmed)
 
         // Digits are channel tuning; content search wants at least two letters.
         guard title.count >= 2, !title.allSatisfy(\.isNumber) else { return }
@@ -61,7 +65,7 @@ extension RemoteController {
             let country = Locale.current.region?.identifier ?? "US"
             let hits = (try? await ContentSearch.search(title, country: country)) ?? []
             guard !Task.isCancelled, let self else { return }
-            let playable: [Suggestion] = hits.compactMap { hit in
+            self.contentBucket = hits.compactMap { hit in
                 let installed = hit.offers.filter { self.appForProvider($0.providerName) != nil }
                 guard !installed.isEmpty else { return nil }
                 let pruned = ContentHit(id: hit.id, title: hit.title, year: hit.year,
@@ -69,8 +73,16 @@ extension RemoteController {
                 // An episode request only makes sense against a show.
                 return .content(pruned, hit.isShow ? episodeRef : nil)
             }
-            self.suggestions = self.assemble(local: self.localMatches(trimmed),
-                                             content: playable, query: trimmed)
+            self.reassemble(trimmed)
+        }
+        guard SpotifyClient.shared.isConnected else { return }
+        spotifyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            let items = (try? await SpotifyClient.shared.search(trimmed)) ?? []
+            guard !Task.isCancelled, let self else { return }
+            self.spotifyBucket = items.map(Suggestion.spotify)
+            self.reassemble(trimmed)
         }
     }
 
@@ -84,19 +96,41 @@ extension RemoteController {
         return (String(match.1), EpisodeRef(season: season, episode: episode))
     }
 
-    private func assemble(local: [Suggestion], content: [Suggestion], query: String) -> [Suggestion] {
-        var rows = Array(local.prefix(Self.maxLocalRows))
-        rows += content.prefix(max(0, Self.maxRows - 1 - rows.count))
-        // One in-app hand-off at the end, when an app supports it.
+    private func reassemble(_ query: String) {
+        let local = localMatches(query)
+        var rows: [Suggestion] = []
+
+        // A Spotify artist whose name starts with the query is almost
+        // certainly what was typed — "the weeknd" ⏎ should be his page.
+        var spotify = spotifyBucket
+        if case .spotify(let item)? = spotify.first,
+           item.kind == .artist || item.isOwn,
+           item.name.lowercased().hasPrefix(query.lowercased()) {
+            rows.append(spotify.removeFirst())
+        }
+
+        rows += local.prefix(2)
+        rows += contentBucket.prefix(2)
+        rows += spotify.prefix(2)
+
+        // Backfill whatever room is left, most useful bucket first.
+        for extras in [contentBucket.dropFirst(2), spotify.dropFirst(2), local.dropFirst(2)] {
+            guard rows.count < Self.maxRows else { break }
+            rows += extras.prefix(Self.maxRows - rows.count)
+        }
+
+        // One in-app hand-off at the end when an app supports it — Spotify's
+        // only until the account is connected (then results come inline).
         if query.count >= 2, !query.allSatisfy(\.isNumber) {
             for (appID, _) in Self.inAppSearchTargets {
                 if rows.count >= Self.maxRows { break }
+                if appID == "spotify-beehive", SpotifyClient.shared.isConnected { continue }
                 if let app = apps.first(where: { $0.id == appID }) {
                     rows.append(.inAppSearch(app, query))
                 }
             }
         }
-        return Array(rows.prefix(Self.maxRows))
+        suggestions = Array(rows.prefix(Self.maxRows))
     }
 
     private func localMatches(_ query: String) -> [Suggestion] {
@@ -147,6 +181,9 @@ extension RemoteController {
         suggestions = []
         selectedIndex = 0
         contentTask?.cancel()
+        spotifyTask?.cancel()
+        contentBucket = []
+        spotifyBucket = []
     }
 
     func executeSelected() {
@@ -165,9 +202,20 @@ extension RemoteController {
         case .app(let app):    launch(app)
         case .input(let inp):  switchInput(inp)
         case .content(let hit, let ref): play(hit, episode: ref)
+        case .spotify(let item):  playSpotify(item)
         case .inAppSearch(let app, let query): searchInApp(app, query: query)
         }
         clearSearch()
+    }
+
+    /// Opens the item in the TV's Spotify app via its spotify: URI.
+    func playSpotify(_ item: SpotifyItem) {
+        guard let app = apps.first(where: { $0.id == "spotify-beehive" }) else {
+            flash("Spotify isn't installed on the TV.")
+            return
+        }
+        launch(app, contentTarget: item.uri)
+        flash("Opening \(item.name) in Spotify.")
     }
 
     /// Hands the query to the app's own search (spotify:search:…, YouTube

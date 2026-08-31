@@ -125,6 +125,12 @@ struct RemoteView: View {
             Button("Reconnect") { controller.reconnect() }
             Button("Forget Pairing…") { controller.forgetPairing() }
             Divider()
+            if controller.spotifyConnected {
+                Button("Disconnect Spotify") { controller.disconnectSpotify() }
+            } else {
+                Button("Connect Spotify…") { controller.connectSpotify() }
+            }
+            Divider()
             Button("Quit Zapper") { NSApplication.shared.terminate(nil) }
         } label: {
             Image(systemName: "ellipsis")

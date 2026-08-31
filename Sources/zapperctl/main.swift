@@ -206,6 +206,23 @@ do {
             print("      \(offer.providerName): \(offer.url)")
         }
 
+    case "spotify-connect":
+        guard args.count >= 2 else { usage() }
+        SpotifyClient.shared.setClientID(args[1])
+        try await SpotifyClient.shared.connect { url in
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            task.arguments = [url.absoluteString]
+            try? task.run()
+        }
+        print("connected as \(SpotifyClient.shared.displayName ?? "?")")
+
+    case "spotify":
+        guard args.count >= 2 else { usage() }
+        for item in try await SpotifyClient.shared.search(args[1]) {
+            print("  [\(item.kind.rawValue)\(item.isOwn ? ", yours" : "")] \(item.name) - \(item.detail)  \(item.uri)")
+        }
+
     case "toast":
         guard args.count >= 3 else { usage() }
         let device = try await connected(args[1])

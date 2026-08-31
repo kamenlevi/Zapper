@@ -35,6 +35,10 @@ final class RemoteController: ObservableObject {
     @Published var selectedIndex = 0
     var channelsList: [TVChannel] = []
     var contentTask: Task<Void, Never>?
+    var spotifyTask: Task<Void, Never>?
+    var contentBucket: [Suggestion] = []
+    var spotifyBucket: [Suggestion] = []
+    @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
     private let discovery = Discovery()
     private var device: WebOSDevice?
@@ -277,6 +281,55 @@ final class RemoteController: ObservableObject {
                 flash(message)
             }
         }
+    }
+
+    // MARK: - Spotify account
+
+    func connectSpotify() {
+        if SpotifyClient.shared.clientID == nil {
+            guard let id = askForSpotifyClientID(),
+                  !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            SpotifyClient.shared.setClientID(id.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        flash("Finish signing in to Spotify in the browser…")
+        Task {
+            do {
+                try await SpotifyClient.shared.connect { url in
+                    Task { @MainActor in NSWorkspace.shared.open(url) }
+                }
+                self.spotifyConnected = true
+                let name = SpotifyClient.shared.displayName.map { " as \($0)" } ?? ""
+                self.flash("Spotify connected\(name).")
+            } catch {
+                self.flash((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
+    }
+
+    func disconnectSpotify() {
+        SpotifyClient.shared.disconnect()
+        spotifyConnected = false
+        flash("Spotify disconnected.")
+    }
+
+    private func askForSpotifyClientID() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Spotify Client ID"
+        alert.informativeText = """
+        Create a free app at developer.spotify.com/dashboard, add
+        http://127.0.0.1:8917/callback as its Redirect URI, and paste the
+        app's Client ID here.
+        """
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.placeholderString = "Client ID"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
     }
 
     func flash(_ message: String) {

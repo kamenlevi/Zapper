@@ -135,6 +135,10 @@ private struct SuggestionRow: View {
             Image(systemName: hit.isShow ? "play.tv" : "film")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+        case .spotify(let item):
+            Image(systemName: Self.spotifySymbol(item.kind))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         case .inAppSearch(let app, _):
             if let image = controller.quickIcons[app.id] {
                 Image(nsImage: image)
@@ -155,6 +159,7 @@ private struct SuggestionRow: View {
         case .app(let app):    return app.label
         case .input(let inp):  return inp.label
         case .content(let hit, _): return hit.title
+        case .spotify(let item):   return item.name
         case .inAppSearch(let app, let query): return "\u{201C}\(query)\u{201D} in \(app.label)"
         }
     }
@@ -170,7 +175,18 @@ private struct SuggestionRow: View {
             if let year = hit.year { parts.append(String(year)) }
             if let ref { parts.append("S\(ref.season) E\(ref.episode)") }
             return parts.joined(separator: " · ")
+        case .spotify(let item):
+            return item.isOwn ? "Your playlist · Spotify" : "\(item.detail) · Spotify"
         case .inAppSearch: return "Search in app"
+        }
+    }
+
+    private static func spotifySymbol(_ kind: SpotifyItem.Kind) -> String {
+        switch kind {
+        case .artist:   return "music.microphone"
+        case .track:    return "music.note"
+        case .album:    return "square.stack"
+        case .playlist: return "music.note.list"
         }
     }
 }

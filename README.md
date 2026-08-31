@@ -12,8 +12,10 @@ over SSAP — no HomeKit, no LG account.
     HBO Max, say); Enter plays it — apps resume where you left off
   - `friends s1 e4` → plays that episode, preferring the service that can
     deep-link to it directly
-  - anything else → hand the query to Spotify's or YouTube's own search on
-    the TV
+  - `the weeknd` → with Spotify connected (⋯ menu → Connect Spotify), inline
+    results from your account — artists, songs, albums, your playlists —
+    Enter opens them in the TV's Spotify app; otherwise the query is handed
+    to Spotify's/YouTube's own on-TV search
 - Quick-launch tiles for your top three apps (right-click to change)
 - Full D-pad, OK, back/home, volume with slider, channel rocker + number pad,
   input switching, power (on via Wake-on-LAN — enable Quick Start+ on the TV)
@@ -46,5 +48,9 @@ zapperctl findep "friends" 1 4    # per-episode deep links
 
 - Content search uses JustWatch's public endpoint (no key, region from your
   macOS locale). If it breaks, channel/app search still works.
+- Spotify uses the official Web API with PKCE — create a free app at
+  developer.spotify.com/dashboard with Redirect URI
+  `http://127.0.0.1:8917/callback`, then paste its Client ID when connecting.
+  Tokens live beside the pairing file, 0600.
 - `Sources/ZapperKit` is the device-agnostic core; `RemoteDevice` is the seam
   for adding non-LG devices.
