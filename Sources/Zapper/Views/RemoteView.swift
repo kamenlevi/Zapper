@@ -83,9 +83,7 @@ struct RemoteView: View {
             .contentShape(Rectangle())
             .tapPress {
                 guard controller.state.isOn else { return }
-                withAnimation(.easeOut(duration: 0.16)) {
-                    controller.nowPlayingVisible.toggle()
-                }
+                controller.nowPlayingVisible.toggle()
             }
 
             Spacer(minLength: 4)

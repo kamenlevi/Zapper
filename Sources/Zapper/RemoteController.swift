@@ -170,7 +170,11 @@ final class RemoteController: ObservableObject {
                 currentProgram = (try? await device.currentProgram()) ?? nil
             }
 
-            try? await Task.sleep(nanoseconds: wantInfo ? 1_500_000_000 : 2_000_000_000)
+            // While the panel is open and still hungry (no title yet, or the
+            // TV is paused so the overlay is guaranteed on screen), look
+            // more often — overlays are only up for a few seconds.
+            let hungry = wantInfo && (nowPlaying.showTitle == nil || state.isMediaPlaying == false)
+            try? await Task.sleep(nanoseconds: hungry ? 900_000_000 : wantInfo ? 1_500_000_000 : 2_000_000_000)
         }
     }
 

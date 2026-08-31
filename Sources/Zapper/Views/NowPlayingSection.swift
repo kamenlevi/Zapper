@@ -20,7 +20,6 @@ struct NowPlayingSection: View {
         }
         .padding(10)
         .background(Palette.key, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
     // MARK: - Live TV

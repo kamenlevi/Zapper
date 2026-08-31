@@ -71,19 +71,18 @@ public struct NowPlayingSnapshot: Sendable, Equatable {
             break
         }
 
-        // Elapsed and total: the two clock readings around the timeline —
-        // smaller is the position, larger the duration.
+        // The timeline's two clocks read elapsed on the left and REMAINING on
+        // the right (Netflix style), in that order — total is their sum.
         let times = ocrText.matches(of: clock).map { match -> TimeInterval in
             let hours = match.1.flatMap { Double($0) } ?? 0
             let minutes = Double(match.2) ?? 0
             let seconds = Double(match.3) ?? 0
             return hours * 3600 + minutes * 60 + seconds
         }
-        if times.count >= 2 {
-            let sorted = times.sorted()
-            let position = sorted[0]
-            let duration = sorted[sorted.count - 1]
-            if duration > 0, position <= duration, duration >= 60 {
+        if times.count == 2 {
+            let position = times[0]
+            let duration = times[0] + times[1]
+            if duration >= 60, position <= duration {
                 snapshot.position = position
                 snapshot.duration = duration
             }
