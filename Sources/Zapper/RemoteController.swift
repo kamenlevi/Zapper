@@ -49,6 +49,16 @@ final class RemoteController: ObservableObject {
     var userMovedSelection = false
     @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
+    @Published var autoSkip = AutoSkip.Settings.load() {
+        didSet {
+            let defaults = UserDefaults.standard
+            defaults.set(autoSkip.enabled, forKey: AutoSkip.Settings.enabledKey)
+            defaults.set(autoSkip.intros, forKey: AutoSkip.Settings.introsKey)
+            defaults.set(autoSkip.recaps, forKey: AutoSkip.Settings.recapsKey)
+            defaults.set(autoSkip.stillWatching, forKey: AutoSkip.Settings.stillWatchingKey)
+        }
+    }
+
     private let discovery = Discovery()
     private var device: WebOSDevice?
     private var observations: [Task<Void, Never>] = []
@@ -81,6 +91,10 @@ final class RemoteController: ObservableObject {
 
     // MARK: - Lifecycle
 
+    /// Tasks in `observations` up to this count live for the app's whole
+    /// life; select() cancels only the per-device ones after them.
+    private static let permanentObservations = 2
+
     func start() {
         loadCachedQuickLaunch()
         observations.append(Task { [weak self] in
@@ -90,7 +104,41 @@ final class RemoteController: ObservableObject {
                 self.autoSelectIfNeeded()
             }
         })
+        observations.append(Task { [weak self] in await self?.runAutoSkipLoop() })
         discovery.start()
+    }
+
+    /// Polls a frame off the TV every couple of seconds while a streaming
+    /// app is up, and presses OK when a skippable prompt is on screen.
+    private func runAutoSkipLoop() async {
+        var lastPress = Date.distantPast
+        while !Task.isCancelled {
+            let settings = autoSkip
+            let watching = settings.enabled
+                && isConnected
+                && state.isOn
+                && AutoSkip.videoApps.contains(state.currentAppID ?? "")
+
+            guard watching else {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                continue
+            }
+            // A press hides the prompt; don't fire again while the app is
+            // still reacting.
+            if Date().timeIntervalSince(lastPress) > 8,
+               let device,
+               let frame = try? await device.captureScreen() {
+                let prompt = await Task.detached(priority: .utility) {
+                    AutoSkip.detectPrompt(in: frame, settings: settings)
+                }.value
+                if let prompt {
+                    press(.ok)
+                    lastPress = Date()
+                    flash(prompt.message)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
     }
 
     private func autoSelectIfNeeded() {
@@ -125,8 +173,8 @@ final class RemoteController: ObservableObject {
 
         let previous = device
         Task { await previous?.disconnect() }
-        observations.dropFirst().forEach { $0.cancel() }
-        observations = Array(observations.prefix(1))
+        observations.dropFirst(Self.permanentObservations).forEach { $0.cancel() }
+        observations = Array(observations.prefix(Self.permanentObservations))
 
         let next = WebOSDevice(id: found.id, displayName: found.name, host: found.host)
         device = next

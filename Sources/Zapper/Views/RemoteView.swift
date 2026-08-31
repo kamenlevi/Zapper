@@ -130,6 +130,13 @@ struct RemoteView: View {
             } else {
                 Button("Connect Spotify…") { controller.connectSpotify() }
             }
+            Menu("Auto-Skip") {
+                Toggle("Auto-Skip Enabled", isOn: $controller.autoSkip.enabled)
+                Divider()
+                Toggle("Intros", isOn: $controller.autoSkip.intros)
+                Toggle("Recaps", isOn: $controller.autoSkip.recaps)
+                Toggle("\u{201C}Still Watching?\u{201D} Prompts", isOn: $controller.autoSkip.stillWatching)
+            }
             Divider()
             Button("Quit Zapper") { NSApplication.shared.terminate(nil) }
         } label: {

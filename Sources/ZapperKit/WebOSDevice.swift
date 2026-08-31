@@ -304,6 +304,30 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
         }
     }
 
+    /// Grabs one frame of whatever's on screen. DRM'd video comes back
+    /// black, but app UI overlays (subtitles, Skip Intro buttons) are in the
+    /// frame — which is exactly what auto-skip needs.
+    public func captureScreen() async throws -> Data {
+        let response = try await socket.request(SSAP.captureScreen)
+        guard let uri = response["imageUri"] as? String, let url = URL(string: uri) else {
+            throw RemoteError.commandFailed("The TV didn't return a capture.")
+        }
+        return try await fetchIconData(from: url)
+    }
+
+    /// Sends any SSAP request and returns the raw response — the protocol
+    /// exploration hatch behind `zapperctl raw`.
+    public func rawRequest(_ uri: String, json: String? = nil) async throws -> String {
+        var payload: JSONDict = [:]
+        if let json, let data = json.data(using: .utf8),
+           let parsed = try JSONSerialization.jsonObject(with: data) as? JSONDict {
+            payload = parsed
+        }
+        let response = try await socket.request(uri, payload: payload)
+        let data = try JSONSerialization.data(withJSONObject: response, options: [.prettyPrinted, .sortedKeys])
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// The unparsed launch-point entries, pretty-printed — a debugging aid
     /// for seeing what artwork and colours the TV actually advertises.
     public func rawLaunchPointsJSON() async throws -> String {

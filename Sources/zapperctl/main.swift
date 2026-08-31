@@ -224,6 +224,12 @@ do {
             print("  [\(item.kind.rawValue)\(item.isOwn ? ", yours" : "")] \(item.name) - \(item.detail)  \(item.uri)")
         }
 
+    case "raw":
+        guard args.count >= 3 else { usage() }
+        let device = try await connected(args[1])
+        print(try await device.rawRequest(args[2], json: args.count >= 4 ? args[3] : nil))
+        await device.disconnect()
+
     case "toast":
         guard args.count >= 3 else { usage() }
         let device = try await connected(args[1])

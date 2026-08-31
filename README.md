@@ -16,6 +16,11 @@ over SSAP — no HomeKit, no LG account.
     results from your account — artists, songs, albums, your playlists —
     Enter opens them in the TV's Spotify app; otherwise the query is handed
     to Spotify's/YouTube's own on-TV search
+- **Auto-skip** (⋯ menu → Auto-Skip): while a streaming app plays, Zapper
+  watches the screen and presses OK on "Skip Intro" / "Skip Recap" /
+  "Still watching?" prompts for you. The TV's capture endpoint blacks out
+  the DRM'd video but keeps app UI overlays, which is all this needs;
+  frames are OCR'd locally (Apple Vision) and discarded.
 - Quick-launch tiles for your top three apps (right-click to change)
 - Full D-pad, OK, back/home, volume with slider, channel rocker + number pad,
   input switching, power (on via Wake-on-LAN — enable Quick Start+ on the TV)

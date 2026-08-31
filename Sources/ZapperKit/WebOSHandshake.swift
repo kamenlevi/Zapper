@@ -76,6 +76,7 @@ enum SSAP {
     static let launchPoints    = "ssap://com.webos.applicationManager/listLaunchPoints"
     static let foregroundApp   = "ssap://com.webos.applicationManager/getForegroundAppInfo"
     static let launch          = "ssap://system.launcher/launch"
+    static let captureScreen   = "ssap://tv/executeOneShot"
 
     static let turnOff         = "ssap://system/turnOff"
     static let toast           = "ssap://system.notifications/createToast"
