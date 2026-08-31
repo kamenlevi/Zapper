@@ -349,6 +349,26 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
         }
     }
 
+    /// Launches an app through the TV's DIAL service (plain HTTP, port
+    /// 36866) with a launch payload. This is the path that actually starts
+    /// Netflix playback — its SSAP contentTarget is ignored on current
+    /// firmware, but the DIAL `v=<videoID>` parameter plays the title
+    /// directly under the last-active profile.
+    public func dialLaunch(appName: String, payload: String) async throws {
+        let currentHost = lock.withLock { host }
+        guard let url = URL(string: "http://\(currentHost):36866/apps/\(appName)") else {
+            throw RemoteError.commandFailed("Bad DIAL URL.")
+        }
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.httpMethod = "POST"
+        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(payload.utf8)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let status = (response as? HTTPURLResponse)?.statusCode, (200...201).contains(status) else {
+            throw RemoteError.commandFailed("DIAL launch refused (\((response as? HTTPURLResponse)?.statusCode ?? 0)).")
+        }
+    }
+
     /// Grabs one frame of whatever's on screen. DRM'd video comes back
     /// black, but app UI overlays (subtitles, Skip Intro buttons) are in the
     /// frame — which is exactly what auto-skip needs.

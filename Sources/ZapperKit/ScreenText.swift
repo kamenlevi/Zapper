@@ -7,19 +7,32 @@ import Vision
 /// streaming app's transport overlay into structured now-playing facts.
 public enum ScreenText {
 
-    /// All recognized text in the frame, one observation per line.
-    public static func read(jpeg: Data) -> String {
+    public struct Line: Sendable {
+        public let text: String
+        /// Vision-normalised bounding box: origin bottom-left, 0...1.
+        public let box: CGRect
+    }
+
+    /// All recognized text in the frame with positions. Accurate recognition:
+    /// the fast path mangles stylised app fonts ("Frlends", "03=31").
+    public static func lines(jpeg: Data) -> [Line] {
         guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { return "" }
+        else { return [] }
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
+        request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         let handler = VNImageRequestHandler(cgImage: image)
-        guard (try? handler.perform([request])) != nil, let results = request.results else { return "" }
-        return results
-            .compactMap { $0.topCandidates(1).first?.string }
-            .joined(separator: "\n")
+        guard (try? handler.perform([request])) != nil, let results = request.results else { return [] }
+        return results.compactMap { observation in
+            guard let top = observation.topCandidates(1).first else { return nil }
+            return Line(text: top.string, box: observation.boundingBox)
+        }
+    }
+
+    /// All recognized text in the frame, one observation per line.
+    public static func read(jpeg: Data) -> String {
+        lines(jpeg: jpeg).map(\.text).joined(separator: "\n")
     }
 }
 
@@ -49,9 +62,11 @@ public struct NowPlayingSnapshot: Sendable, Equatable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
 
-        let seasonEpisode = #/s(?:eason)?\s*(\d{1,2})\s*[:.]?\s*e(?:p(?:isode)?)?\s*(\d{1,3})/#.ignoresCase()
-        let quoted = #/["“'']([^"“”'']{2,60})["”'']/#
-        let clock = #/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/#
+        // OCR of stylised overlays is dirty: S reads as 5, ":" as "=" or
+        // "..", quotes as degree signs. The patterns absorb all of that.
+        let seasonEpisode = #/[s5](?:eason)?\s*(\d{1,2})\s*[:.,]*\s*e(?:p(?:isode)?)?\.?\s*(\d{1,3})/#.ignoresCase()
+        let quoted = #/["“'°]([^"“”'°]{2,60})["”'°]/#
+        let clock = #/\b(?:(\d{1,2})[:=])?(\d{1,2})[:=](\d{2})\b/#
 
         for (index, line) in lines.enumerated() {
             guard let match = line.firstMatch(of: seasonEpisode) else { continue }

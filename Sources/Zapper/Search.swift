@@ -362,9 +362,7 @@ extension RemoteController {
             ?? quickApps.compactMap { quick in candidates.first { $0.app.id == quick?.id } }.first
             ?? candidates[0]
 
-        nowPlaying.appID = chosen.app.id
-        launch(chosen.app, contentTarget: chosen.offer.url)
-        flash("Playing \(title) on \(chosen.app.label).")
+        startPlayback(app: chosen.app, offer: chosen.offer, title: title)
     }
 
     /// JustWatch service names → webOS app ids, with a label match as the

@@ -58,6 +58,7 @@ final class RemoteController: ObservableObject {
     @Published var liveThumbnail: NSImage?
     var episodeStripKey: String?
     var nowPlayingResolving = false
+    var supervisorTask: Task<Void, Never>?
 
     @Published var autoSkip = AutoSkip.Settings.load() {
         didSet {
@@ -323,7 +324,9 @@ final class RemoteController: ObservableObject {
 
     // MARK: - Commands
 
-    private func run(_ label: String, _ work: @escaping (WebOSDevice) async throws -> Void) {
+    var activeDevice: WebOSDevice? { device }
+
+    func run(_ label: String, _ work: @escaping (WebOSDevice) async throws -> Void) {
         guard let device else { flash("No TV selected."); return }
         Task {
             do { try await work(device) }

@@ -143,6 +143,7 @@ struct RemoteView: View {
             } else {
                 Button("Connect Spotify…") { controller.connectSpotify() }
             }
+            Button("Netflix Profile…") { controller.promptForNetflixProfile() }
             Menu("Auto-Skip") {
                 Toggle("Auto-Skip Enabled", isOn: $controller.autoSkip.enabled)
                 Divider()
