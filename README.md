@@ -10,6 +10,10 @@ over SSAP — no HomeKit, no LG account.
   - `net` → suggests Netflix and other apps/inputs
   - `friends` → shows which of your streaming apps have it (Netflix *and*
     HBO Max, say); Enter plays it — apps resume where you left off
+  - `friends s1 e4` → plays that episode, preferring the service that can
+    deep-link to it directly
+  - anything else → hand the query to Spotify's or YouTube's own search on
+    the TV
 - Quick-launch tiles for your top three apps (right-click to change)
 - Full D-pad, OK, back/home, volume with slider, channel rocker + number pad,
   input switching, power (on via Wake-on-LAN — enable Quick Start+ on the TV)
@@ -35,6 +39,7 @@ zapperctl key 192.168.1.212 ok
 zapperctl channel 192.168.1.212 124
 zapperctl launch 192.168.1.212 netflix [deep-link-url]
 zapperctl find "friends"          # streaming availability search
+zapperctl findep "friends" 1 4    # per-episode deep links
 ```
 
 ## Notes

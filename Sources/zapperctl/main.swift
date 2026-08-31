@@ -195,6 +195,17 @@ do {
             }
         }
 
+    case "findep":
+        guard args.count >= 4, let season = Int(args[2]), let episode = Int(args[3]) else { usage() }
+        let country = Locale.current.region?.identifier ?? "US"
+        guard let show = try await ContentSearch.search(args[1], country: country).first(where: { $0.isShow }) else {
+            print("no show found"); break
+        }
+        print("  \(show.title) [\(show.id)] S\(season) E\(episode)")
+        for offer in try await ContentSearch.episodeOffers(showID: show.id, season: season, episode: episode, country: country) {
+            print("      \(offer.providerName): \(offer.url)")
+        }
+
     case "toast":
         guard args.count >= 3 else { usage() }
         let device = try await connected(args[1])

@@ -279,7 +279,7 @@ final class RemoteController: ObservableObject {
         }
     }
 
-    private func flash(_ message: String) {
+    func flash(_ message: String) {
         transientMessage = message
         messageResetTask?.cancel()
         messageResetTask = Task { [weak self] in
