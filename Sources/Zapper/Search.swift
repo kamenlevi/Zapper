@@ -47,7 +47,7 @@ extension RemoteController {
 
     func queryChanged(_ text: String) {
         selectedIndex = 0
-        visibleCount = Self.maxRows
+        windowStart = 0
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []
@@ -121,13 +121,13 @@ extension RemoteController {
         return (String(match.1), EpisodeRef(season: season, episode: episode))
     }
 
-    /// Rebuilds the full ranked list, then shows the first `visibleCount`
-    /// rows. Arrowing past the bottom reveals the rest (see moveSelection).
+    /// Rebuilds the full ranked list; the dropdown shows a fixed-height
+    /// window over it that scrolls with the selection (see updateWindow).
     /// The selected row is tracked by identity so results arriving mid-scroll
     /// don't yank the highlight somewhere else.
     private func reassemble(_ query: String, spotifyFirst: Bool = false) {
-        let selectedID = suggestions.indices.contains(selectedIndex)
-            ? suggestions[selectedIndex].id : nil
+        let selectedID = rankedSuggestions.indices.contains(selectedIndex)
+            ? rankedSuggestions[selectedIndex].id : nil
 
         let local = localMatches(query)
         var spotify = spotifyBucket
@@ -175,13 +175,23 @@ extension RemoteController {
         // highlight) misbehave; keep the highest-ranked occurrence.
         var seen = Set<String>()
         rankedSuggestions = rows.filter { seen.insert($0.id).inserted }
-        suggestions = Array(rankedSuggestions.prefix(visibleCount))
 
-        if let selectedID, let index = suggestions.firstIndex(where: { $0.id == selectedID }) {
+        if let selectedID, let index = rankedSuggestions.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = index
         } else {
-            selectedIndex = min(selectedIndex, max(suggestions.count - 1, 0))
+            selectedIndex = min(selectedIndex, max(rankedSuggestions.count - 1, 0))
         }
+        updateWindow()
+    }
+
+    /// Slides the fixed-height window so the selected row stays visible,
+    /// then publishes the visible slice.
+    private func updateWindow() {
+        let count = rankedSuggestions.count
+        windowStart = min(max(windowStart, 0), max(count - Self.maxRows, 0))
+        if selectedIndex < windowStart { windowStart = selectedIndex }
+        if selectedIndex >= windowStart + Self.maxRows { windowStart = selectedIndex - Self.maxRows + 1 }
+        suggestions = Array(rankedSuggestions[windowStart..<min(windowStart + Self.maxRows, count)])
     }
 
     private func localMatches(_ query: String) -> [Suggestion] {
@@ -223,14 +233,9 @@ extension RemoteController {
     // MARK: - Selection & execution
 
     func moveSelection(_ delta: Int) {
-        guard !suggestions.isEmpty else { return }
-        let target = selectedIndex + delta
-        // Past the bottom: reveal the next ranked row instead of stopping.
-        if target >= suggestions.count, rankedSuggestions.count > suggestions.count {
-            visibleCount = suggestions.count + 1
-            suggestions = Array(rankedSuggestions.prefix(visibleCount))
-        }
-        selectedIndex = min(max(target, 0), suggestions.count - 1)
+        guard !rankedSuggestions.isEmpty else { return }
+        selectedIndex = min(max(selectedIndex + delta, 0), rankedSuggestions.count - 1)
+        updateWindow()
     }
 
     func clearSearch() {
@@ -238,7 +243,7 @@ extension RemoteController {
         suggestions = []
         rankedSuggestions = []
         selectedIndex = 0
-        visibleCount = Self.maxRows
+        windowStart = 0
         contentTask?.cancel()
         spotifyTask?.cancel()
         contentBucket = []
@@ -247,8 +252,8 @@ extension RemoteController {
 
     func executeSelected() {
         let trimmed = searchText.trimmingCharacters(in: .whitespaces)
-        if suggestions.indices.contains(selectedIndex) {
-            execute(suggestions[selectedIndex])
+        if rankedSuggestions.indices.contains(selectedIndex) {
+            execute(rankedSuggestions[selectedIndex])
         } else if !trimmed.isEmpty, trimmed.allSatisfy(\.isNumber) {
             openChannel(trimmed)
             clearSearch()

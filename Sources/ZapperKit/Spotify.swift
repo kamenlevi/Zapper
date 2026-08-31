@@ -232,18 +232,17 @@ public final class SpotifyClient: @unchecked Sendable {
             }
         }
 
-        let artists = items("artists", .artist) { _ in "Artist" }
-        let tracks = items("tracks", .track) { item in
-            let names = ((item["artists"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
-            return names.isEmpty ? "Song" : names.joined(separator: ", ")
+        // Detail is just the who — the row's subtitle adds the kind word.
+        func artistNames(_ item: [String: Any]) -> String {
+            ((item["artists"] as? [[String: Any]]) ?? [])
+                .compactMap { $0["name"] as? String }
+                .joined(separator: ", ")
         }
-        let albums = items("albums", .album) { item in
-            let names = ((item["artists"] as? [[String: Any]]) ?? []).compactMap { $0["name"] as? String }
-            return names.isEmpty ? "Album" : "Album · \(names.joined(separator: ", "))"
-        }
+        let artists = items("artists", .artist) { _ in "" }
+        let tracks = items("tracks", .track, detail: artistNames)
+        let albums = items("albums", .album, detail: artistNames)
         let playlists = items("playlists", .playlist) { item in
-            let owner = ((item["owner"] as? [String: Any])?["display_name"] as? String) ?? "Playlist"
-            return "Playlist · \(owner)"
+            ((item["owner"] as? [String: Any])?["display_name"] as? String) ?? ""
         }
 
         let norm = text.searchNormalized
@@ -271,7 +270,9 @@ public final class SpotifyClient: @unchecked Sendable {
             // per-type relevance. Normalised, so "kissland" == "Kiss Land".
             var pool: [SpotifyItem] = []
             for index in 0..<3 {
-                for list in [tracks, artists, albums, playlists] where list.count > index {
+                // Albums outrank artists on ties — an unrelated artist above
+                // the album you meant reads as a wrong answer.
+                for list in [tracks, albums, artists, playlists] where list.count > index {
                     pool.append(list[index])
                 }
             }
@@ -287,9 +288,14 @@ public final class SpotifyClient: @unchecked Sendable {
                 .map(\.element)
         }
         // The same playlist can arrive as "yours" and again from public
-        // search — identical URIs make identical UI rows, so keep the first.
-        var seenURIs = Set<String>()
-        return out.filter { seenURIs.insert($0.uri).inserted }
+        // search, and Spotify returns re-releases as separate tracks with
+        // identical names — either way two indistinguishable rows, keep the
+        // best-ranked one.
+        var seen = Set<String>()
+        return out.filter {
+            seen.insert("\($0.kind.rawValue)|\($0.name.searchNormalized)|\($0.detail.searchNormalized)").inserted
+                && seen.insert($0.uri).inserted
+        }
     }
 
     /// The signed-in user's playlists, cached for five minutes.

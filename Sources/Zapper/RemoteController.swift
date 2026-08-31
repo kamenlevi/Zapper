@@ -39,7 +39,11 @@ final class RemoteController: ObservableObject {
     var contentBucket: [Suggestion] = []
     var spotifyBucket: [Suggestion] = []
     var rankedSuggestions: [Suggestion] = []
-    var visibleCount = 6
+    /// First ranked row currently shown — the dropdown is a fixed-height
+    /// window that scrolls over the ranked list. `selectedIndex` is absolute
+    /// into `rankedSuggestions`.
+    var windowStart = 0
+    var selectedVisibleIndex: Int { selectedIndex - windowStart }
     @Published var spotifyConnected = SpotifyClient.shared.isConnected
 
     private let discovery = Discovery()

@@ -17,7 +17,7 @@ struct SearchSection: View {
                         SuggestionRow(
                             controller: controller,
                             suggestion: suggestion,
-                            isSelected: index == controller.selectedIndex
+                            isSelected: index == controller.selectedVisibleIndex
                         )
                     }
                 }
@@ -176,7 +176,16 @@ private struct SuggestionRow: View {
             if let ref { parts.append("S\(ref.season) E\(ref.episode)") }
             return parts.joined(separator: " · ")
         case .spotify(let item):
-            return item.isOwn ? "Your playlist · Spotify" : "\(item.detail) · Spotify"
+            if item.isOwn { return "Your playlist · Spotify" }
+            let kind: String
+            switch item.kind {
+            case .artist:   kind = "Artist"
+            case .track:    kind = "Song"
+            case .album:    kind = "Album"
+            case .playlist: kind = "Playlist"
+            }
+            let parts = [kind, item.detail, "Spotify"].filter { !$0.isEmpty }
+            return parts.joined(separator: " · ")
         case .inAppSearch: return "Search in app"
         }
     }
