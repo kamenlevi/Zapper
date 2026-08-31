@@ -17,69 +17,56 @@ extension RemoteController {
 
     /// Kicks off playback via the mechanism that works for the app, then
     /// supervises the launch.
-    func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String) {
+    func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String, query: String) {
         nowPlaying.appID = app.id
-        if app.id == "netflix",
-           let match = offer.url.firstMatch(of: #/(?:title|watch)\/(\d+)/#) {
-            let videoID = String(match.1)
-            run("play") { device in
-                do {
-                    try await device.dialLaunch(appName: "Netflix", payload: "v=\(videoID)")
-                } catch {
-                    try await device.launchApp(id: app.id, contentTarget: offer.url)
-                }
-            }
-        } else {
-            run("play") { try await $0.launchApp(id: app.id, contentTarget: offer.url) }
-        }
-        flash("Playing \(title) on \(app.label).")
-        supervise()
+        universalPlay(title: title, query: query)
     }
 
-    private func supervise() {
-        supervisorTask?.cancel()
-        supervisorTask = Task { [weak self] in
-            var okPresses = 0
-            var profileHandled = false
-            let deadline = Date().addingTimeInterval(45)
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+    /// Babysits an app launch: answers the profile gate, presses the parked
+    /// title page's Resume/Play, stops once playback runs. Call from within
+    /// an existing supervisor task.
+    func superviseSteps() async {
+        var okPresses = 0
+        var profileHandled = false
+        let deadline = Date().addingTimeInterval(45)
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
 
-            while !Task.isCancelled, Date() < deadline {
-                guard let self, let device = self.activeDevice else { return }
-                guard let frame = try? await device.captureScreen() else {
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    continue
-                }
-                let lines = await Task.detached(priority: .userInitiated) {
-                    ScreenText.lines(jpeg: frame)
-                }.value
-                let joined = lines.map(\.text).joined(separator: "\n").lowercased()
-
-                let profileGate = ["who's watching", "whos watching", "who is watching", "кой гледа"]
-                    .contains(where: joined.contains)
-                let titlePage = ["play from beginning", "resume", "продължи", "възобнови", "гледай"]
-                    .contains(where: joined.contains)
-
-                if profileGate, !profileHandled {
-                    profileHandled = true
-                    await self.selectProfile(among: lines)
-                } else if titlePage, okPresses < 2 {
-                    // The page's default-focused button is Resume/Play.
-                    okPresses += 1
-                    self.press(.ok)
-                } else if self.state.isMediaPlaying == true, okPresses + (profileHandled ? 1 : 0) > 0 {
-                    // We acted and playback is running — job done.
-                    return
-                }
+        while !Task.isCancelled, Date() < deadline {
+            guard let device = activeDevice else { return }
+            guard let frame = try? await device.captureScreen() else {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
+                continue
             }
+            let lines = await Task.detached(priority: .userInitiated) {
+                ScreenText.lines(jpeg: frame)
+            }.value
+            let joined = lines.map(\.text).joined(separator: "\n").lowercased()
+
+            let profileGate = ["who's watching", "whos watching", "who is watching",
+                               "choose a profile", "кой гледа", "избери профил"]
+                .contains(where: joined.contains)
+            let titlePage = ["play from beginning", "resume", "продължи", "възобнови", "гледай"]
+                .contains(where: joined.contains)
+
+            if profileGate, !profileHandled {
+                profileHandled = true
+                await selectProfile(among: lines)
+            } else if titlePage, okPresses < 2 {
+                // The page's default-focused button is Resume/Play.
+                okPresses += 1
+                press(.ok)
+            } else if state.isMediaPlaying == true, okPresses + (profileHandled ? 1 : 0) > 0 {
+                // We acted and playback is running — job done.
+                return
+            }
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
         }
     }
 
     /// On a profile gate, walks the focus to the configured profile and
     /// confirms. Focus starts on the leftmost profile; the OCR boxes tell us
     /// how many steps right the target is.
-    private func selectProfile(among lines: [ScreenText.Line]) async {
+    func selectProfile(among lines: [ScreenText.Line]) async {
         let target = netflixProfileName.searchNormalized
         let candidates = lines.filter { line in
             let lower = line.text.lowercased()

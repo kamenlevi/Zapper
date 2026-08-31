@@ -240,6 +240,26 @@ do {
         print("--- parsed ---")
         print(NowPlayingSnapshot.parse(ocrText: text))
 
+    case "play":
+        guard args.count >= 3 else { usage() }
+        let device = try await connected(args[1])
+        let search = UniversalSearch(device: device) { status in print("  → \(status)") }
+        let handedOff = await search.play(query: args[2])
+        print(handedOff ? "✓ handed off to the app" : "✗ search failed")
+        await device.disconnect()
+
+    case "focus":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let frame = try await device.captureScreen()
+        let lines = ScreenText.lines(jpeg: frame)
+        guard let home = lines.first(where: { $0.text == "Home" }) else {
+            print("no Home label"); await device.disconnect(); break
+        }
+        let focus = ScreenText.focusPillX(jpeg: frame, nearY: home.box.midY)
+        print("homeBox minX=\(String(format: "%.3f", home.box.minX)) midY=\(String(format: "%.3f", home.box.midY))  focusX=\(focus.map { String(format: "%.3f", $0) } ?? "none")")
+        await device.disconnect()
+
     case "raw":
         guard args.count >= 3 else { usage() }
         let device = try await connected(args[1])

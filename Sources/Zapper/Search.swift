@@ -145,7 +145,8 @@ extension RemoteController {
             spotify = []
         } else if case .spotify(let item)? = spotify.first,
                   item.kind == .artist || item.isOwn,
-                  item.name.searchNormalized.hasPrefix(query.searchNormalized) {
+                  item.name.searchNormalized.hasPrefix(query.searchNormalized),
+                  contentBucket.isEmpty || item.name.searchNormalized == query.searchNormalized {
             // A Spotify artist (or own playlist) whose name starts with the
             // query is almost certainly what was typed — "the weeknd" ⏎
             // should be his page.
@@ -153,7 +154,7 @@ extension RemoteController {
         }
 
         rows += local.prefix(2)
-        rows += contentBucket.prefix(2)
+        rows += contentBucket.prefix(3)
         rows += spotify.prefix(2)
         // Everything else stays ranked below, revealed on demand —
         // alternating, so video leftovers can't bury the music results.
@@ -323,7 +324,7 @@ extension RemoteController {
             }
         }
         guard let episode else {
-            playOffers(hit.offers, title: hit.title, via: providerName)
+            playOffers(hit.offers, title: hit.title, query: hit.title, via: providerName)
             return
         }
         Task { [weak self] in
@@ -334,7 +335,7 @@ extension RemoteController {
             guard let self else { return }
             if offers.isEmpty {
                 self.flash("No link for S\(episode.season) E\(episode.episode) — opening the show.")
-                self.playOffers(hit.offers, title: hit.title, via: providerName)
+                self.playOffers(hit.offers, title: hit.title, query: hit.title, via: providerName)
                 return
             }
             // Which services actually link to the episode, not just the show?
@@ -343,11 +344,11 @@ extension RemoteController {
             let preferred = providerName != nil ? offers
                 : (episodeSpecific.isEmpty ? offers : episodeSpecific)
             self.playOffers(preferred, title: "\(hit.title) S\(episode.season) E\(episode.episode)",
-                            via: providerName)
+                            query: hit.title, via: providerName)
         }
     }
 
-    func playOffers(_ offers: [ContentHit.Offer], title: String, via providerName: String?) {
+    func playOffers(_ offers: [ContentHit.Offer], title: String, query: String? = nil, via providerName: String?) {
         let candidates: [(offer: ContentHit.Offer, app: DeviceApp)] = offers.compactMap { offer in
             guard let app = appForProvider(offer.providerName) else { return nil }
             return (offer, app)
@@ -362,7 +363,7 @@ extension RemoteController {
             ?? quickApps.compactMap { quick in candidates.first { $0.app.id == quick?.id } }.first
             ?? candidates[0]
 
-        startPlayback(app: chosen.app, offer: chosen.offer, title: title)
+        startPlayback(app: chosen.app, offer: chosen.offer, title: title, query: query ?? title)
     }
 
     /// JustWatch service names → webOS app ids, with a label match as the

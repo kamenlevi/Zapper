@@ -369,6 +369,16 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
         }
     }
 
+    /// Types into whatever system text field is focused (the universal
+    /// search box) — one call, no on-screen keyboard walking.
+    public func insertText(_ text: String) async throws {
+        _ = try await socket.request(SSAP.insertText, payload: ["text": text, "replace": 0])
+    }
+
+    public func imeEnter() async throws {
+        _ = try await socket.request(SSAP.imeEnter)
+    }
+
     /// Grabs one frame of whatever's on screen. DRM'd video comes back
     /// black, but app UI overlays (subtitles, Skip Intro buttons) are in the
     /// frame — which is exactly what auto-skip needs.

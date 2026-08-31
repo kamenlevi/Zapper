@@ -34,6 +34,55 @@ public enum ScreenText {
     public static func read(jpeg: Data) -> String {
         lines(jpeg: jpeg).map(\.text).joined(separator: "\n")
     }
+
+    /// Finds the focused "pill" in a nav bar: a solid near-white rounded
+    /// rect that only the focused item has. Scans the pixel band at the
+    /// given Vision-normalised (bottom-origin) y for the widest bright run
+    /// and returns its centre x, normalised 0...1. Nil when nothing on that
+    /// row is focused.
+    public static func focusPillX(jpeg: Data, nearY y: Double, ignoringLeft: Double = 0) -> Double? {
+        guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let data = image.dataProvider?.data,
+              let base = CFDataGetBytePtr(data)
+        else { return nil }
+
+        let width = image.width, height = image.height
+        let bytesPerRow = image.bytesPerRow
+        let bytesPerPixel = image.bitsPerPixel / 8
+        guard bytesPerPixel >= 3 else { return nil }
+
+        let centerRow = Int((1 - y) * Double(height))
+        let band = max(4, height / 54)  // ≈ pill half-height
+        let rows = max(centerRow - band, 0)...min(centerRow + band, height - 1)
+
+        // A column belongs to the pill when most of the band is near-white
+        // (solid background); text strokes alone don't reach that density.
+        var brightFraction = [Double](repeating: 0, count: width)
+        for x in 0..<width {
+            var bright = 0
+            for row in rows {
+                let p = row * bytesPerRow + x * bytesPerPixel
+                if base[p] > 205, base[p + 1] > 205, base[p + 2] > 205 { bright += 1 }
+            }
+            brightFraction[x] = Double(bright) / Double(rows.count)
+        }
+
+        let minX = Int(ignoringLeft * Double(width))
+        var bestRun = (start: 0, length: 0)
+        var runStart: Int? = nil
+        for x in minX...width {
+            let isPill = x < width && brightFraction[x] > 0.4
+            if isPill, runStart == nil { runStart = x }
+            if !isPill, let start = runStart {
+                if x - start > bestRun.length { bestRun = (start, x - start) }
+                runStart = nil
+            }
+        }
+        // Narrower than ~2% of the screen is stray text, not a pill.
+        guard bestRun.length > width / 50 else { return nil }
+        return (Double(bestRun.start) + Double(bestRun.length) / 2) / Double(width)
+    }
 }
 
 /// What a transport overlay reveals about the current playback, in whatever

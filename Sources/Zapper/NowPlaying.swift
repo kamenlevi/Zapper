@@ -101,7 +101,8 @@ extension RemoteController {
         nowPlaying.episodeTitle = episodeInfo.title
         nowPlaying.position = nil
         nowPlaying.syncedAt = nil
-        playOffers(playable, title: "E\(episodeInfo.number) · \(episodeInfo.title)", via: nil)
+        playOffers(playable, title: "E\(episodeInfo.number) · \(episodeInfo.title)",
+                   query: nowPlaying.showTitle ?? episodeInfo.title, via: nil)
     }
 
     func clearNowPlayingContext(newAppID: String?) {
