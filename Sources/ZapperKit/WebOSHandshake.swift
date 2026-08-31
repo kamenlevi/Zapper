@@ -83,6 +83,8 @@ enum SSAP {
     static let turnOff         = "ssap://system/turnOff"
     static let toast           = "ssap://system.notifications/createToast"
 
+    static let screenOff       = "ssap://com.webos.service.tvpower/power/turnOffScreen"
+    static let screenOn        = "ssap://com.webos.service.tvpower/power/turnOnScreen"
     static let insertText      = "ssap://com.webos.service.ime/insertText"
     static let imeEnter        = "ssap://com.webos.service.ime/sendEnterKey"
 

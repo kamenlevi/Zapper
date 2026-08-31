@@ -81,7 +81,7 @@ private struct SuggestionRow: View {
 
             Spacer(minLength: 4)
 
-            if case .content(let hit, let ref) = suggestion {
+            if case .content(let hit, let ref, _) = suggestion {
                 HStack(spacing: 3) {
                     ForEach(hit.offers, id: \.self) { offer in
                         Text(offer.providerName)
@@ -131,7 +131,7 @@ private struct SuggestionRow: View {
             Image(systemName: "cable.connector")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-        case .content(let hit, _):
+        case .content(let hit, _, _):
             Image(systemName: hit.isShow ? "play.tv" : "film")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -158,7 +158,7 @@ private struct SuggestionRow: View {
         case .channel(let ch): return ch.name
         case .app(let app):    return app.label
         case .input(let inp):  return inp.label
-        case .content(let hit, _): return hit.title
+        case .content(let hit, _, _): return hit.title
         case .spotify(let item):   return item.name
         case .inAppSearch(let app, let query): return "\u{201C}\(query)\u{201D} in \(app.label)"
         }
@@ -169,7 +169,7 @@ private struct SuggestionRow: View {
         case .channel(let ch): return "Channel \(ch.number)"
         case .app:             return "Open app"
         case .input:           return "Switch input"
-        case .content(let hit, let ref):
+        case .content(let hit, let ref, _):
             let kind = hit.isShow ? "Show" : "Movie"
             var parts = [kind]
             if let year = hit.year { parts.append(String(year)) }

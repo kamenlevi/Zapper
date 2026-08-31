@@ -379,6 +379,16 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
         _ = try await socket.request(SSAP.imeEnter)
     }
 
+    /// Backlight off, everything else keeps running — captures still see the
+    /// UI, so the play robot can work without showing its steps.
+    public func screenOff() async throws {
+        _ = try await socket.request(SSAP.screenOff)
+    }
+
+    public func screenOn() async throws {
+        _ = try await socket.request(SSAP.screenOn)
+    }
+
     /// Grabs one frame of whatever's on screen. DRM'd video comes back
     /// black, but app UI overlays (subtitles, Skip Intro buttons) are in the
     /// frame — which is exactly what auto-skip needs.

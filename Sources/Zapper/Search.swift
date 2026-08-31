@@ -16,7 +16,7 @@ enum Suggestion: Identifiable, Hashable {
     case channel(TVChannel)
     case app(DeviceApp)
     case input(DeviceInput)
-    case content(ContentHit, EpisodeRef?)
+    case content(ContentHit, EpisodeRef?, String?)  // provider app id when the query named one
     case spotify(SpotifyItem)
     case inAppSearch(DeviceApp, String)
 
@@ -25,7 +25,7 @@ enum Suggestion: Identifiable, Hashable {
         case .channel(let c):       return "channel-\(c.id)-\(c.number)"
         case .app(let a):           return "app-\(a.id)"
         case .input(let i):         return "input-\(i.id)"
-        case .content(let h, let e): return "content-\(h.id)-\(e.map { "s\($0.season)e\($0.episode)" } ?? "")"
+        case .content(let h, let e, let p): return "content-\(h.id)-\(e.map { "s\($0.season)e\($0.episode)" } ?? "")-\(p ?? "")"
         case .spotify(let s):       return "spotify-\(s.uri)"
         case .inAppSearch(let a, _): return "inapp-\(a.id)"
         }
@@ -57,7 +57,8 @@ extension RemoteController {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { suggestions = []; rankedSuggestions = []; return }
 
-        let (rawTitle, episodeRef) = Self.parseEpisode(trimmed)
+        let (noProvider, providerAppID) = Self.parseProviderHint(trimmed)
+        let (rawTitle, episodeRef) = Self.parseEpisode(noProvider)
         let (title, spotifyKind, wantsShow) = Self.parseKindHint(rawTitle)
         let spotifyFirst = spotifyKind != nil
         reassemble(trimmed, spotifyFirst: spotifyFirst)
@@ -74,10 +75,14 @@ extension RemoteController {
                 if let wantsShow, hit.isShow != wantsShow { return nil }
                 let installed = hit.offers.filter { self.appForProvider($0.providerName) != nil }
                 guard !installed.isEmpty else { return nil }
+                if let providerAppID,
+                   !installed.contains(where: { self.appForProvider($0.providerName)?.id == providerAppID }) {
+                    return nil  // the query named a service this title isn't on
+                }
                 let pruned = ContentHit(id: hit.id, title: hit.title, year: hit.year,
                                         isShow: hit.isShow, offers: installed)
                 // An episode request only makes sense against a show.
-                return .content(pruned, hit.isShow ? episodeRef : nil)
+                return .content(pruned, hit.isShow ? episodeRef : nil, providerAppID)
             }
             self.reassemble(trimmed, spotifyFirst: spotifyFirst)
         }
@@ -90,6 +95,31 @@ extension RemoteController {
             self.spotifyBucket = items.map(Suggestion.spotify)
             self.reassemble(trimmed, spotifyFirst: spotifyFirst)
         }
+    }
+
+    /// "friends netflix" → play on Netflix specifically. Checks the last one
+    /// or two words against the known services; returns the stripped title
+    /// and the app id to force.
+    static func parseProviderHint(_ query: String) -> (title: String, appID: String?) {
+        let providers: [String: String] = [
+            "netflix": "netflix",
+            "hbo": "com.wbd.stream", "hbomax": "com.wbd.stream", "hbo max": "com.wbd.stream",
+            "max": "com.wbd.stream",
+            "disney": "com.disney.disneyplus-prod", "disney+": "com.disney.disneyplus-prod",
+            "disney plus": "com.disney.disneyplus-prod",
+            "prime": "amazon", "amazon": "amazon", "prime video": "amazon",
+            "apple tv": "com.apple.appletv", "appletv": "com.apple.appletv",
+            "skyshowtime": "com.skyshowtime.tv",
+            "youtube": "youtube.leanback.v4",
+        ]
+        let words = query.split(separator: " ").map(String.init)
+        for take in [2, 1] where words.count > take {
+            let tail = words.suffix(take).joined(separator: " ").lowercased()
+            if let appID = providers[tail] {
+                return (words.dropLast(take).joined(separator: " "), appID)
+            }
+        }
+        return (query, nil)
     }
 
     /// A trailing type word narrows the search: "kissland album" means the
@@ -276,7 +306,11 @@ extension RemoteController {
         case .channel(let ch): openChannel(ch.number)
         case .app(let app):    launch(app)
         case .input(let inp):  switchInput(inp)
-        case .content(let hit, let ref): play(hit, episode: ref)
+        case .content(let hit, let ref, let providerAppID):
+            let providerName = providerAppID.flatMap { id in
+                hit.offers.first { appForProvider($0.providerName)?.id == id }?.providerName
+            }
+            play(hit, episode: ref, via: providerName)
         case .spotify(let item):  playSpotify(item)
         case .inAppSearch(let app, let query): searchInApp(app, query: query)
         }

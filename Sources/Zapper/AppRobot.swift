@@ -8,15 +8,21 @@ import ZapperKit
 /// side (profile gate, title-page play button).
 extension RemoteController {
 
-    func universalPlay(title: String, query: String) {
+    func universalPlay(title: String, query: String, preferApp: DeviceApp? = nil) {
         supervisorTask?.cancel()
         guard let device = activeDevice else { return }
         let search = UniversalSearch(device: device) { [weak self] status in
             self?.flash(status)
         }
-        flash("Finding \(title) on the TV\u{2026}")
+        flash("Finding \(title) on the TV \u{2014} screen stays dark until it plays\u{2026}")
         supervisorTask = Task { [weak self] in
-            let handedOff = await search.play(query: query)
+            // Backlight off: the whole search dance runs invisibly, and the
+            // defer guarantees the screen comes back whatever happens.
+            try? await device.screenOff()
+            defer { Task { try? await device.screenOn() } }
+            let handedOff = await search.play(
+                query: query, preferAppID: preferApp?.id, preferAppLabel: preferApp?.label
+            )
             guard let self, !Task.isCancelled else { return }
             guard handedOff else {
                 self.flash("The TV's search couldn't find \(title).")

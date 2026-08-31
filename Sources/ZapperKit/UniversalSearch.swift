@@ -19,8 +19,14 @@ public final class UniversalSearch {
 
     /// Runs the search hand-off. Returns true once a result card was
     /// activated; the app-side supervisor takes it from there (profile
-    /// gates, title-page play button).
-    public func play(query: String) async -> Bool {
+    /// gates, title-page play button). When a target app is given it is
+    /// launched first, so the results' "Current App" row belongs to it and
+    /// the hand-off can't drift to whatever app happened to be open.
+    public func play(query: String, preferAppID: String? = nil, preferAppLabel: String? = nil) async -> Bool {
+        if let preferAppID {
+            try? await device.launchApp(id: preferAppID, contentTarget: nil)
+            try? await sleep(3500)
+        }
         try? await device.launchApp(id: "com.webos.app.voice", contentTarget: nil)
         try? await sleep(3500)
 
@@ -43,7 +49,7 @@ public final class UniversalSearch {
         // Find the result card whose label matches the query best.
         guard let frame = try? await device.captureScreen() else { return false }
         let lines = ScreenText.lines(jpeg: frame)
-        guard let target = Self.bestCard(for: query, in: lines) else {
+        guard let target = Self.bestCard(for: query, in: lines, preferAppLabel: preferAppLabel) else {
             // No labels read? Take the focused first card as a best effort.
             await tap(.ok, ms: 1000)
             return true
@@ -61,8 +67,12 @@ public final class UniversalSearch {
     /// Result cards are poster tiles with 1–2 line labels; section headers
     /// ("Current App (Netflix)", "TV Shows", "Movies") separate rows. Focus
     /// starts on the first card of the first row.
-    static func bestCard(for query: String, in lines: [ScreenText.Line]) -> CardTarget? {
+    static func bestCard(for query: String, in lines: [ScreenText.Line],
+                         preferAppLabel: String? = nil) -> CardTarget? {
         let headers = ["current app", "tv shows", "movies", "apps", "live", "youtube"]
+        let headerLines = lines.filter { line in
+            headers.contains(where: line.text.lowercased().contains)
+        }
         // Labels live below the search field (y < 0.88) and are short.
         let labels = lines.filter { line in
             line.box.maxY < 0.88 && line.text.count >= 2 && line.text.count <= 40
@@ -95,10 +105,24 @@ public final class UniversalSearch {
         for index in rows.indices { rows[index].sort { $0.x < $1.x } }
 
         // Score every card; earlier rows win ties (fewer presses, and the
-        // "Current App" row lists the target app's own hits).
+        // "Current App" row lists the target app's own hits). When a target
+        // app was requested, its row — the one under a header naming it —
+        // gets a strong boost so the hand-off can't drift to another app.
         let want = query.searchNormalized
+        let preferLabel = preferAppLabel?.lowercased()
         var best: (score: Int, target: CardTarget)? = nil
         for (rowIndex, row) in rows.enumerated() {
+            // The header for this row: the nearest header line just above it.
+            let rowTop = row[0].y
+            let header = headerLines
+                .filter { Double($0.box.minY) > rowTop }
+                .min { Double($0.box.minY) - rowTop < Double($1.box.minY) - rowTop }
+            let rowBoost: Int
+            if let preferLabel, let header, header.text.lowercased().contains(preferLabel) {
+                rowBoost = 4
+            } else {
+                rowBoost = 0
+            }
             for (columnIndex, card) in row.enumerated() {
                 let name = card.title
                     .replacingOccurrences(of: "…", with: "")
@@ -108,8 +132,9 @@ public final class UniversalSearch {
                 else if name.hasPrefix(want) || want.hasPrefix(name) { score = 2 }
                 else if name.contains(want) || want.contains(name) { score = 1 }
                 else { score = 0 }
-                if score > (best?.score ?? 0) {
-                    best = (score, CardTarget(row: rowIndex, column: columnIndex, title: card.title))
+                guard score > 0 else { continue }
+                if score + rowBoost > (best?.score ?? 0) {
+                    best = (score + rowBoost, CardTarget(row: rowIndex, column: columnIndex, title: card.title))
                 }
             }
         }
