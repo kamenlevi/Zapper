@@ -162,6 +162,10 @@ final class RemoteController: ObservableObject {
                     if !snapshot.isEmpty {
                         nowPlaying.merge(snapshot)
                         resolveNowPlayingContext()
+                        // Ground truth for the fast-resume lane.
+                        if let show = nowPlaying.showTitle, let appID {
+                            recordLastPlayed(appID: appID, title: show)
+                        }
                     }
                 }
             }

@@ -20,6 +20,13 @@ extension RemoteController {
     func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String, query: String,
                        wantsShow: Bool? = nil, exclusive: Bool = false) {
         nowPlaying.appID = app.id
+        // Asking for the show the app already has open/resumable: a plain
+        // launch resumes it in seconds, no search needed.
+        if query.searchNormalized == lastPlayed(appID: app.id) {
+            fastResume(app: app, title: title, query: query,
+                       wantsShow: wantsShow, exclusive: exclusive)
+            return
+        }
         universalPlay(title: title, query: query, preferApp: app, wantsShow: wantsShow,
                       exclusive: exclusive)
     }
@@ -27,10 +34,10 @@ extension RemoteController {
     /// Babysits an app launch: answers the profile gate, presses the parked
     /// title page's Resume/Play, stops once playback runs. Call from within
     /// an existing supervisor task.
-    func superviseSteps() async {
+    func superviseSteps(timeout: TimeInterval = 45) async {
         var okPresses = 0
         var profileHandled = false
-        let deadline = Date().addingTimeInterval(45)
+        let deadline = Date().addingTimeInterval(timeout)
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         while !Task.isCancelled, Date() < deadline {

@@ -60,11 +60,7 @@ public final class UniversalSearch {
             var bestScore = 0
             for (index, line) in candidates.enumerated() {
                 let name = line.text.replacingOccurrences(of: "…", with: "").searchNormalized
-                let score: Int
-                if name == want { score = 3 }
-                else if name.hasPrefix(want) || want.hasPrefix(name) { score = 2 }
-                else if name.contains(want) || want.contains(name) { score = 1 }
-                else { score = 0 }
+                let score = Self.matchScore(name, against: want)
                 if score > bestScore { bestScore = score; downs = index + 1 }
             }
         }
@@ -90,6 +86,38 @@ public final class UniversalSearch {
     }
 
     struct CardTarget { let row: Int; let column: Int; let title: String }
+
+    /// 3 exact, 2 prefix or very similar, 1 contains or similar-ish, 0 no.
+    /// Similarity matters because stylised logos OCR badly ("F.F.l.e.d.p.s"
+    /// for Friends) — edit distance still recognises near-misses.
+    static func matchScore(_ name: String, against want: String) -> Int {
+        if name.isEmpty || want.isEmpty { return 0 }
+        if name == want { return 3 }
+        if name.hasPrefix(want) || want.hasPrefix(name) { return 2 }
+        if name.contains(want) || want.contains(name) { return 1 }
+        let sim = similarity(name, want)
+        if sim >= 0.8 { return 2 }
+        if sim >= 0.6 { return 1 }
+        return 0
+    }
+
+    /// 1 − levenshtein/maxLength.
+    static func similarity(_ a: String, _ b: String) -> Double {
+        let x = Array(a), y = Array(b)
+        guard !x.isEmpty, !y.isEmpty else { return 0 }
+        var previous = Array(0...y.count)
+        var current = [Int](repeating: 0, count: y.count + 1)
+        for i in 1...x.count {
+            current[0] = i
+            for j in 1...y.count {
+                let cost = x[i - 1] == y[j - 1] ? 0 : 1
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost)
+            }
+            swap(&previous, &current)
+        }
+        let distance = Double(previous[y.count])
+        return 1 - distance / Double(max(x.count, y.count))
+    }
 
     /// Result cards are poster tiles with 1–2 line labels; section headers
     /// ("Current App (Netflix)", "TV Shows", "Movies") separate rows. Focus
@@ -168,11 +196,7 @@ public final class UniversalSearch {
                 let name = card.title
                     .replacingOccurrences(of: "…", with: "")
                     .searchNormalized
-                let nameScore: Int
-                if name == want { nameScore = 3 }
-                else if name.hasPrefix(want) || want.hasPrefix(name) { nameScore = 2 }
-                else if name.contains(want) || want.contains(name) { nameScore = 1 }
-                else { nameScore = 0 }
+                let nameScore = matchScore(name, against: want)
                 guard nameScore > 0 else { continue }
                 let total = nameScore * 10 + tiebreak
                 if total > (best?.score ?? 0) {
