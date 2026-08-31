@@ -22,34 +22,38 @@ public final class UniversalSearch {
     /// gates, title-page play button). When a target app is given it is
     /// launched first, so the results' "Current App" row belongs to it and
     /// the hand-off can't drift to whatever app happened to be open.
-    public func play(query: String, preferAppID: String? = nil, preferAppLabel: String? = nil) async -> Bool {
-        if let preferAppID {
+    public func play(query: String, preferAppID: String? = nil, preferAppLabel: String? = nil,
+                     wantsShow: Bool? = nil) async -> Bool {
+        // Pre-launching pins the results' "Current App" row to the target —
+        // skip the cost when it's already the foreground app.
+        if let preferAppID, device.deviceState.currentAppID != preferAppID {
             try? await device.launchApp(id: preferAppID, contentTarget: nil)
-            try? await sleep(3500)
+            try? await sleep(3000)
         }
         try? await device.launchApp(id: "com.webos.app.voice", contentTarget: nil)
-        try? await sleep(3500)
+        try? await sleep(2800)
 
         // Inject the query; verify it landed, retrying while the field wakes.
         var typed = false
-        for _ in 0..<3 {
+        for _ in 0..<4 {
             guard !Task.isCancelled else { return false }
             try? await device.insertText(query)
-            try? await sleep(1200)
+            try? await sleep(900)
             let text = await ocrText()
             if text.lowercased().contains(query.lowercased().prefix(8)) { typed = true; break }
         }
         guard typed else { return false }
 
         try? await device.imeEnter()
-        try? await sleep(1200)
+        try? await sleep(900)
         await tap(.down)          // onto the suggestion list
-        await tap(.ok, ms: 4000)  // open full results
+        await tap(.ok, ms: 3200)  // open full results
 
         // Find the result card whose label matches the query best.
         guard let frame = try? await device.captureScreen() else { return false }
         let lines = ScreenText.lines(jpeg: frame)
-        guard let target = Self.bestCard(for: query, in: lines, preferAppLabel: preferAppLabel) else {
+        guard let target = Self.bestCard(for: query, in: lines,
+                                          preferAppLabel: preferAppLabel, wantsShow: wantsShow) else {
             // No labels read? Take the focused first card as a best effort.
             await tap(.ok, ms: 1000)
             return true
@@ -68,7 +72,7 @@ public final class UniversalSearch {
     /// ("Current App (Netflix)", "TV Shows", "Movies") separate rows. Focus
     /// starts on the first card of the first row.
     static func bestCard(for query: String, in lines: [ScreenText.Line],
-                         preferAppLabel: String? = nil) -> CardTarget? {
+                         preferAppLabel: String? = nil, wantsShow: Bool? = nil) -> CardTarget? {
         let headers = ["current app", "tv shows", "movies", "apps", "live", "youtube"]
         let headerLines = lines.filter { line in
             headers.contains(where: line.text.lowercased().contains)
@@ -104,41 +108,51 @@ public final class UniversalSearch {
         }
         for index in rows.indices { rows[index].sort { $0.x < $1.x } }
 
-        // Score every card; earlier rows win ties (fewer presses, and the
-        // "Current App" row lists the target app's own hits). When a target
-        // app was requested, its row — the one under a header naming it —
-        // gets a strong boost so the hand-off can't drift to another app.
+        // Name match quality rules absolutely — a fuzzy match in a boosted
+        // row must never beat an exact title elsewhere. The preferred app's
+        // row and the right section kind ("Movies" vs "TV Shows") only break
+        // ties between equally-good names.
         let want = query.searchNormalized
         let preferLabel = preferAppLabel?.lowercased()
         var best: (score: Int, target: CardTarget)? = nil
+        var preferredRowFirstCard: CardTarget? = nil
         for (rowIndex, row) in rows.enumerated() {
             // The header for this row: the nearest header line just above it.
             let rowTop = row[0].y
             let header = headerLines
                 .filter { Double($0.box.minY) > rowTop }
                 .min { Double($0.box.minY) - rowTop < Double($1.box.minY) - rowTop }
-            let rowBoost: Int
+            var tiebreak = 0
             if let preferLabel, let header, header.text.lowercased().contains(preferLabel) {
-                rowBoost = 4
-            } else {
-                rowBoost = 0
+                tiebreak += 4
+                if preferredRowFirstCard == nil, let first = row.first {
+                    preferredRowFirstCard = CardTarget(row: rowIndex, column: 0, title: first.title)
+                }
+            }
+            if let wantsShow, let header {
+                let headerText = header.text.lowercased()
+                if wantsShow, headerText.contains("tv shows") { tiebreak += 2 }
+                if !wantsShow, headerText.contains("movies") { tiebreak += 2 }
             }
             for (columnIndex, card) in row.enumerated() {
                 let name = card.title
                     .replacingOccurrences(of: "…", with: "")
                     .searchNormalized
-                let score: Int
-                if name == want { score = 3 }
-                else if name.hasPrefix(want) || want.hasPrefix(name) { score = 2 }
-                else if name.contains(want) || want.contains(name) { score = 1 }
-                else { score = 0 }
-                guard score > 0 else { continue }
-                if score + rowBoost > (best?.score ?? 0) {
-                    best = (score + rowBoost, CardTarget(row: rowIndex, column: columnIndex, title: card.title))
+                let nameScore: Int
+                if name == want { nameScore = 3 }
+                else if name.hasPrefix(want) || want.hasPrefix(name) { nameScore = 2 }
+                else if name.contains(want) || want.contains(name) { nameScore = 1 }
+                else { nameScore = 0 }
+                guard nameScore > 0 else { continue }
+                let total = nameScore * 10 + tiebreak
+                if total > (best?.score ?? 0) {
+                    best = (total, CardTarget(row: rowIndex, column: columnIndex, title: card.title))
                 }
             }
         }
-        return best?.target
+        // Nothing matched by name (truncated/mangled labels): the preferred
+        // app's first result beats a blind press on whatever LG put first.
+        return best?.target ?? preferredRowFirstCard
     }
 
     // MARK: - Primitives

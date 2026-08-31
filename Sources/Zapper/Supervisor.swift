@@ -17,9 +17,10 @@ extension RemoteController {
 
     /// Kicks off playback via the mechanism that works for the app, then
     /// supervises the launch.
-    func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String, query: String) {
+    func startPlayback(app: DeviceApp, offer: ContentHit.Offer, title: String, query: String,
+                       wantsShow: Bool? = nil) {
         nowPlaying.appID = app.id
-        universalPlay(title: title, query: query, preferApp: app)
+        universalPlay(title: title, query: query, preferApp: app, wantsShow: wantsShow)
     }
 
     /// Babysits an app launch: answers the profile gate, presses the parked
@@ -29,7 +30,7 @@ extension RemoteController {
         var okPresses = 0
         var profileHandled = false
         let deadline = Date().addingTimeInterval(45)
-        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         while !Task.isCancelled, Date() < deadline {
             guard let device = activeDevice else { return }
@@ -59,7 +60,7 @@ extension RemoteController {
                 // We acted and playback is running — job done.
                 return
             }
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
         }
     }
 
