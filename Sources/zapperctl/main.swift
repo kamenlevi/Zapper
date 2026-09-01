@@ -248,6 +248,27 @@ do {
         print(handedOff ? "✓ handed off to the app" : "✗ search failed")
         await device.disconnect()
 
+    case "bench":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let json = args.count >= 3 ? args[2] : nil
+        var sizes: [Int] = []
+        let t0 = Date()
+        for _ in 0..<10 {
+            let response = try await device.rawRequest("ssap://tv/executeOneShot", json: json)
+            guard let uriRange = response.range(of: "imageUri\" : \""),
+                  let end = response[uriRange.upperBound...].range(of: "\"") else { continue }
+            let uri = response[uriRange.upperBound..<end.lowerBound]
+                .replacingOccurrences(of: "\\/", with: "/")
+            if let url = URL(string: String(uri)) {
+                let data = try await device.fetchIconData(from: url)
+                sizes.append(data.count)
+            }
+        }
+        let elapsed = Date().timeIntervalSince(t0)
+        print(String(format: "10 frames in %.2fs -> %.1f fps, avg %d KB", elapsed, 10 / elapsed, sizes.isEmpty ? 0 : sizes.reduce(0,+) / sizes.count / 1024))
+        await device.disconnect()
+
     case "focus":
         guard args.count >= 2 else { usage() }
         let device = try await connected(args[1])

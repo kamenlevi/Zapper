@@ -3,7 +3,10 @@ import SwiftUI
 import ZapperKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+
+    func popoverDidShow(_ notification: Notification) { controller.popoverVisible = true }
+    func popoverDidClose(_ notification: Notification) { controller.popoverVisible = false }
 
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
@@ -26,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.contentViewController = hosting
         popover.behavior = .transient
+        popover.delegate = self
         // Never animate: NSPopover animates size changes by tweening the
         // window frame while SwiftUI is already laid out at the final
         // positions, so any inline expansion (now-playing panel, search

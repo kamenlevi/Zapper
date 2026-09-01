@@ -59,6 +59,9 @@ final class RemoteController: ObservableObject {
     var episodeStripKey: String?
     var nowPlayingResolving = false
     var supervisorTask: Task<Void, Never>?
+    /// Set by the AppDelegate; loops that only feed visible UI check it.
+    @Published var popoverVisible = false
+    private var thumbnailTask: Task<Void, Never>?
 
     @Published var autoSkip = AutoSkip.Settings.load() {
         didSet {
@@ -133,6 +136,8 @@ final class RemoteController: ObservableObject {
             let wantSkip = settings.enabled && isVideo
             let wantInfo = nowPlayingVisible && (isVideo || isLiveTV)
 
+            ensureThumbnailLoop(active: isLiveTV && wantInfo && popoverVisible)
+
             guard isConnected, state.isOn, wantSkip || wantInfo else {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 continue
@@ -142,30 +147,25 @@ final class RemoteController: ObservableObject {
                 clearNowPlayingContext(newAppID: appID)
             }
 
-            if let device, let frame = try? await device.captureScreen() {
-                if isLiveTV, wantInfo {
-                    liveThumbnail = NSImage(data: frame)
+            if isVideo, let device, let frame = try? await device.captureScreen() {
+                let text = await Task.detached(priority: .utility) {
+                    ScreenText.read(jpeg: frame)
+                }.value
+                // A press hides the prompt; don't fire again while the
+                // app is still reacting.
+                if wantSkip, Date().timeIntervalSince(lastPress) > 8,
+                   let prompt = AutoSkip.detectPrompt(inText: text, settings: settings) {
+                    press(.ok)
+                    lastPress = Date()
+                    flash(prompt.message)
                 }
-                if isVideo {
-                    let text = await Task.detached(priority: .utility) {
-                        ScreenText.read(jpeg: frame)
-                    }.value
-                    // A press hides the prompt; don't fire again while the
-                    // app is still reacting.
-                    if wantSkip, Date().timeIntervalSince(lastPress) > 8,
-                       let prompt = AutoSkip.detectPrompt(inText: text, settings: settings) {
-                        press(.ok)
-                        lastPress = Date()
-                        flash(prompt.message)
-                    }
-                    let snapshot = NowPlayingSnapshot.parse(ocrText: text)
-                    if !snapshot.isEmpty {
-                        nowPlaying.merge(snapshot)
-                        resolveNowPlayingContext()
-                        // Ground truth for the fast-resume lane.
-                        if let show = nowPlaying.showTitle, let appID {
-                            recordLastPlayed(appID: appID, title: show)
-                        }
+                let snapshot = NowPlayingSnapshot.parse(ocrText: text)
+                if !snapshot.isEmpty {
+                    nowPlaying.merge(snapshot)
+                    resolveNowPlayingContext()
+                    // Ground truth for the fast-resume lane.
+                    if let show = nowPlaying.showTitle, let appID {
+                        recordLastPlayed(appID: appID, title: show)
                     }
                 }
             }
@@ -180,6 +180,33 @@ final class RemoteController: ObservableObject {
             // more often — overlays are only up for a few seconds.
             let hungry = wantInfo && (nowPlaying.showTitle == nil || state.isMediaPlaying == false)
             try? await Task.sleep(nanoseconds: hungry ? 900_000_000 : wantInfo ? 1_500_000_000 : 2_000_000_000)
+        }
+    }
+
+    /// The Live TV preview runs its own flat-out loop (the capture endpoint
+    /// caps at ~2.4 fps; the shared OCR loop only managed ~0.7) — but only
+    /// while the popover is open on the panel, so it never polls unseen.
+    private func ensureThumbnailLoop(active: Bool) {
+        if active, thumbnailTask == nil {
+            thumbnailTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self,
+                          self.popoverVisible,
+                          self.nowPlayingVisible,
+                          self.state.currentAppID == "com.webos.app.livetv",
+                          let device = self.activeDevice
+                    else { break }
+                    if let frame = try? await device.captureScreen(),
+                       let image = NSImage(data: frame) {
+                        self.liveThumbnail = image
+                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+                await MainActor.run { [weak self] in self?.thumbnailTask = nil }
+            }
+        } else if !active, let task = thumbnailTask {
+            task.cancel()
+            thumbnailTask = nil
         }
     }
 
