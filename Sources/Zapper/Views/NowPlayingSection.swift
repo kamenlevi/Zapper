@@ -31,6 +31,8 @@ struct NowPlayingSection: View {
                 .resizable()
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .tapPress { controller.presentPreview?() }
+                .help("Open the full-size preview")
         }
         HStack {
             VStack(alignment: .leading, spacing: 1) {
@@ -45,6 +47,8 @@ struct NowPlayingSection: View {
                 }
             }
             Spacer()
+            channelButton("arrow.up.left.and.arrow.down.right") { controller.presentPreview?() }
+                .help("Open the full-size preview")
             channelButton("chevron.down") { controller.press(.channelDown) }
             channelButton("chevron.up") { controller.press(.channelUp) }
         }
@@ -116,6 +120,14 @@ struct NowPlayingSection: View {
                 }
             }
             Spacer(minLength: 0)
+
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(Palette.key, in: Circle())
+                .tapPress(shape: Circle()) { controller.presentPreview?() }
+                .help("Open the full-size preview")
         }
 
         trackbar

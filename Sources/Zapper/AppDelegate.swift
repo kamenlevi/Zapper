@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var popover: NSPopover!
     private let controller = RemoteController()
     private var monitor: Any?
+    private lazy var previewWindow = PreviewWindowController(controller: controller)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // results) renders content sliding over the header.
         popover.animates = false
 
+        controller.presentPreview = { [weak self] in self?.previewWindow.toggle() }
         controller.start()
 
         // Development aid: lets the popover be captured without driving the

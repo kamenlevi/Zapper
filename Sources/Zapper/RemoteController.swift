@@ -61,7 +61,14 @@ final class RemoteController: ObservableObject {
     var supervisorTask: Task<Void, Never>?
     /// Set by the AppDelegate; loops that only feed visible UI check it.
     @Published var popoverVisible = false
+    /// The big preview window is open — it wants frames whether or not the
+    /// popover does, and bigger ones.
+    @Published var previewWindowOpen = false { didSet { ensureThumbnailLoop() } }
+    @Published var previewSharp = false { didSet { ensureThumbnailLoop() } }
+    /// Set by the AppDelegate, which owns the window.
+    var presentPreview: (() -> Void)?
     private var thumbnailTask: Task<Void, Never>?
+    private var thumbnailSize: (width: Int, height: Int)?
 
     @Published var autoSkip = AutoSkip.Settings.load() {
         didSet {
@@ -136,7 +143,7 @@ final class RemoteController: ObservableObject {
             let wantSkip = settings.enabled && isVideo
             let wantInfo = nowPlayingVisible && (isVideo || isLiveTV)
 
-            ensureThumbnailLoop(active: isLiveTV && wantInfo && popoverVisible)
+            ensureThumbnailLoop()
 
             guard isConnected, state.isOn, wantSkip || wantInfo else {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -186,23 +193,47 @@ final class RemoteController: ObservableObject {
     /// The Live TV preview runs its own flat-out loop (the capture endpoint
     /// caps at ~2.4 fps; the shared OCR loop only managed ~0.7) — but only
     /// while the popover is open on the panel, so it never polls unseen.
-    private func ensureThumbnailLoop(active: Bool) {
-        if active, thumbnailTask == nil {
-            thumbnailTask = Task { [weak self] in
-                guard let self, let device = self.activeDevice else { return }
-                for await frame in device.screenFrames(width: 640, height: 360) {
-                    guard !Task.isCancelled,
-                          self.popoverVisible,
-                          self.nowPlayingVisible,
-                          self.state.currentAppID == "com.webos.app.livetv"
-                    else { break }
-                    if let image = NSImage(data: frame) { self.liveThumbnail = image }
-                }
-                self.thumbnailTask = nil
-            }
-        } else if !active, let task = thumbnailTask {
-            task.cancel()
+    /// True while someone is actually looking at TV frames: the popover's
+    /// Live TV thumbnail, the big preview window, or both.
+    private var previewWanted: Bool {
+        guard isConnected, state.isOn else { return false }
+        let popoverWants = popoverVisible && nowPlayingVisible
+            && state.currentAppID == "com.webos.app.livetv"
+        return popoverWants || previewWindowOpen
+    }
+
+    /// Runs one frame stream for whoever needs it, sized to the biggest
+    /// consumer — the window gets larger frames (sharper, a little slower)
+    /// since it fills the screen.
+    private func ensureThumbnailLoop() {
+        guard previewWanted else {
+            thumbnailTask?.cancel()
             thumbnailTask = nil
+            thumbnailSize = nil
+            return
+        }
+        let size: (width: Int, height: Int) = previewWindowOpen
+            ? (previewSharp ? (1280, 720) : (960, 540))
+            : (640, 360)
+        if thumbnailTask != nil, thumbnailSize?.width == size.width { return }
+
+        thumbnailTask?.cancel()
+        thumbnailSize = size
+        thumbnailTask = Task { [weak self] in
+            guard let self, let device = self.activeDevice else { return }
+            for await frame in device.screenFrames(width: size.width, height: size.height) {
+                // Stop when nobody's watching, or when a different frame size
+                // is wanted — that restart is driven by ensureThumbnailLoop.
+                guard !Task.isCancelled,
+                      self.previewWanted,
+                      self.thumbnailSize?.width == size.width
+                else { break }
+                if let image = NSImage(data: frame) { self.liveThumbnail = image }
+            }
+            if self.thumbnailSize?.width == size.width {
+                self.thumbnailTask = nil
+                self.thumbnailSize = nil
+            }
         }
     }
 
