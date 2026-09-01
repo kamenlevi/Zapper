@@ -84,7 +84,9 @@ extension RemoteController {
     }
 
     func robotOCRText() async -> String {
-        guard let device = activeDevice, let frame = try? await device.captureScreen() else { return "" }
+        guard let device = activeDevice,
+              let frame = try? await device.captureFrame(width: 1280, height: 720)
+        else { return "" }
         return await Task.detached(priority: .userInitiated) { ScreenText.read(jpeg: frame) }.value
     }
 }

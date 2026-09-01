@@ -248,6 +248,73 @@ do {
         print(handedOff ? "✓ handed off to the app" : "✗ search failed")
         await device.disconnect()
 
+    case "stream":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let w = args.count >= 3 ? Int(args[2]) ?? 640 : 640
+        let h = args.count >= 4 ? Int(args[3]) ?? 360 : 360
+        var frames = 0
+        var bytes = 0
+        var hashes = Set<Int>()
+        let t0 = Date()
+        for await frame in device.screenFrames(width: w, height: h) {
+            frames += 1
+            bytes += frame.count
+            hashes.insert(frame.hashValue)
+            if Date().timeIntervalSince(t0) > 6 { break }
+        }
+        let dt = Date().timeIntervalSince(t0)
+        print(String(format: "%dx%d: %d frames in %.1fs -> %.1f fps | %d unique | avg %d KB",
+                     w, h, frames, dt, Double(frames) / dt, hashes.count, frames == 0 ? 0 : bytes / frames / 1024))
+        await device.disconnect()
+
+    case "lat":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let uri = args.count >= 3 ? args[2] : "ssap://audio/getVolume"
+        let t0 = Date()
+        for _ in 0..<15 { _ = try? await device.rawRequest(uri, json: nil) }
+        print(String(format: "%@: %.3fs/call", uri, Date().timeIntervalSince(t0) / 15))
+        await device.disconnect()
+
+    case "bench2":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let w = args.count >= 3 ? args[2] : "960"
+        let h = args.count >= 4 ? args[3] : "540"
+        // Register one token URL, then overwrite its backing file in a loop.
+        let response = try await device.rawRequest("ssap://tv/executeOneShot", json: nil)
+        guard let r = response.range(of: "imageUri\" : \""),
+              let e = response[r.upperBound...].range(of: "\""),
+              let url = URL(string: response[r.upperBound..<e.lowerBound].replacingOccurrences(of: "\\/", with: "/"))
+        else { print("no uri"); break }
+        print("token url: \(url.absoluteString)")
+        var hashes = Set<String>()
+        var bytes = 0
+        var capTime = 0.0, fetchTime = 0.0
+        let t0 = Date()
+        for _ in 0..<15 {
+            let c0 = Date()
+            do {
+                _ = try await device.rawRequest("ssap://com.webos.service.capture/executeOneShot",
+                    json: "{\"path\":\"/tmp/capture.jpg\",\"method\":\"DISPLAY\",\"format\":\"JPG\",\"width\":\(w),\"height\":\(h)}")
+            } catch {
+                print("  capture error: \(error)")
+            }
+            let c1 = Date()
+            capTime += c1.timeIntervalSince(c0)
+            if let data = try? await device.fetchIconData(from: url) {
+                bytes += data.count
+                hashes.insert(String(data.hashValue))
+            }
+            fetchTime += Date().timeIntervalSince(c1)
+        }
+        print(String(format: "  capture %.3fs/frame, fetch %.3fs/frame", capTime / 15, fetchTime / 15))
+        let dt = Date().timeIntervalSince(t0)
+        print(String(format: "15 frames in %.2fs -> %.1f fps | %d unique | avg %d KB",
+                     dt, 15 / dt, hashes.count, bytes / 15 / 1024))
+        await device.disconnect()
+
     case "bench":
         guard args.count >= 2 else { usage() }
         let device = try await connected(args[1])

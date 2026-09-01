@@ -147,7 +147,7 @@ final class RemoteController: ObservableObject {
                 clearNowPlayingContext(newAppID: appID)
             }
 
-            if isVideo, let device, let frame = try? await device.captureScreen() {
+            if isVideo, let device, let frame = try? await device.captureFrame(width: 1280, height: 720) {
                 let text = await Task.detached(priority: .utility) {
                     ScreenText.read(jpeg: frame)
                 }.value
@@ -189,20 +189,16 @@ final class RemoteController: ObservableObject {
     private func ensureThumbnailLoop(active: Bool) {
         if active, thumbnailTask == nil {
             thumbnailTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    guard let self,
+                guard let self, let device = self.activeDevice else { return }
+                for await frame in device.screenFrames(width: 640, height: 360) {
+                    guard !Task.isCancelled,
                           self.popoverVisible,
                           self.nowPlayingVisible,
-                          self.state.currentAppID == "com.webos.app.livetv",
-                          let device = self.activeDevice
+                          self.state.currentAppID == "com.webos.app.livetv"
                     else { break }
-                    if let frame = try? await device.captureScreen(),
-                       let image = NSImage(data: frame) {
-                        self.liveThumbnail = image
-                    }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    if let image = NSImage(data: frame) { self.liveThumbnail = image }
                 }
-                await MainActor.run { [weak self] in self?.thumbnailTask = nil }
+                self.thumbnailTask = nil
             }
         } else if !active, let task = thumbnailTask {
             task.cancel()

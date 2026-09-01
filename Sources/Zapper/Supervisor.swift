@@ -42,7 +42,7 @@ extension RemoteController {
 
         while !Task.isCancelled, Date() < deadline {
             guard let device = activeDevice else { return }
-            guard let frame = try? await device.captureScreen() else {
+            guard let frame = try? await device.captureFrame(width: 1280, height: 720) else {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
                 continue
             }

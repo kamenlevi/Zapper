@@ -51,7 +51,7 @@ public final class UniversalSearch {
         // sometimes a similar-but-different title, so pick the one that
         // actually matches the query instead of blindly taking the top.
         var downs = 1
-        if let frame = try? await device.captureScreen() {
+        if let frame = try? await device.captureFrame(width: 1280, height: 720) {
             let want = query.searchNormalized
             let candidates = ScreenText.lines(jpeg: frame)
                 .filter { $0.box.maxY < 0.88 && $0.box.maxY > 0.5
@@ -68,7 +68,7 @@ public final class UniversalSearch {
         await tap(.ok, ms: 3200)  // open full results
 
         // Find the result card whose label matches the query best.
-        guard let frame = try? await device.captureScreen() else { return false }
+        guard let frame = try? await device.captureFrame(width: 1280, height: 720) else { return false }
         let lines = ScreenText.lines(jpeg: frame)
         guard let target = Self.bestCard(for: query, in: lines,
                                           preferAppLabel: preferAppLabel, wantsShow: wantsShow,
@@ -221,7 +221,7 @@ public final class UniversalSearch {
     }
 
     private func ocrText() async -> String {
-        guard let frame = try? await device.captureScreen() else { return "" }
+        guard let frame = try? await device.captureFrame(width: 1280, height: 720) else { return "" }
         return ScreenText.read(jpeg: frame)
     }
 }

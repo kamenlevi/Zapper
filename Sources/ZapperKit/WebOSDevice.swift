@@ -20,6 +20,8 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
 
     private let lock = NSLock()
     private var reconnectTask: Task<Void, Never>?
+    /// Resource token for /tmp/capture.jpg, reused across frames.
+    private var captureToken: URL?
     private var reconnectDelay: UInt64 = 1
     private var wantsConnection = false
 
@@ -397,7 +399,105 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
         guard let uri = response["imageUri"] as? String, let url = URL(string: uri) else {
             throw RemoteError.commandFailed("The TV didn't return a capture.")
         }
+        // Remember the token: its backing file can be overwritten directly,
+        // which is a much cheaper way to get later frames.
+        lock.withLock { captureToken = url }
         return try await fetchIconData(from: url)
+    }
+
+    /// The file `tv/executeOneShot` captures into. Its resource token is
+    /// re-read on every GET, so overwriting the file behind a live token
+    /// yields a fresh frame without paying for token registration again.
+    private static let capturePath = "/tmp/capture.jpg"
+
+    private func captureTokenURL() async throws -> URL {
+        if let cached = lock.withLock({ captureToken }) { return cached }
+        let response = try await socket.request(SSAP.captureScreen)
+        guard let uri = response["imageUri"] as? String, let url = URL(string: uri) else {
+            throw RemoteError.commandFailed("The TV didn't return a capture.")
+        }
+        lock.withLock { captureToken = url }
+        return url
+    }
+
+    /// Asks the TV to encode the display straight into the token's file.
+    /// Cheaper than `tv/executeOneShot`, and smaller frames encode faster —
+    /// the encode is the whole cost (SSAP round trips are ~10ms).
+    private func writeFrame(width: Int, height: Int) async throws {
+        _ = try await socket.request(SSAP.captureOneShot, payload: [
+            "path": Self.capturePath, "method": "DISPLAY", "format": "JPG",
+            "width": width, "height": height,
+        ])
+    }
+
+    /// A JPEG the TV had finished writing — anything else is a torn read of
+    /// a frame still being written.
+    private static func isCompleteJPEG(_ data: Data) -> Bool {
+        data.count > 4 && data.suffix(2) == Data([0xFF, 0xD9])
+    }
+
+    /// One frame via the fast path, falling back to the slow one-shot (which
+    /// also re-registers the token) if anything about it goes wrong.
+    public func captureFrame(width: Int = 640, height: Int = 360) async throws -> Data {
+        do {
+            let url = try await captureTokenURL()
+            try await writeFrame(width: width, height: height)
+            let data = try await fetchIconData(from: url)
+            guard Self.isCompleteJPEG(data) else {
+                throw RemoteError.commandFailed("Torn frame.")
+            }
+            return data
+        } catch {
+            lock.withLock { captureToken = nil }
+            return try await captureScreen()
+        }
+    }
+
+    /// A continuous stream of display frames, as fast as the panel can encode
+    /// them (~4 fps at 640×360). The next encode is kicked off before the
+    /// previous frame is fetched, so network time overlaps encode time; the
+    /// fetch lands long before the next write, and torn frames are dropped
+    /// rather than shown.
+    public func screenFrames(width: Int = 640, height: Int = 360) -> AsyncStream<Data> {
+        AsyncStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else { continuation.finish(); return }
+                var url: URL?
+                var inFlight: Task<Void, Error>?
+                var failures = 0
+
+                while !Task.isCancelled, failures < 5 {
+                    do {
+                        if url == nil { url = try await self.captureTokenURL() }
+                        guard let url else { break }
+
+                        if inFlight == nil {
+                            inFlight = Task { try await self.writeFrame(width: width, height: height) }
+                        }
+                        try await inFlight?.value
+                        // Start the next encode now; fetching the frame just
+                        // written happens while the panel works on it.
+                        inFlight = Task { try await self.writeFrame(width: width, height: height) }
+
+                        let data = try await self.fetchIconData(from: url)
+                        if Self.isCompleteJPEG(data) {
+                            failures = 0
+                            continuation.yield(data)
+                        }
+                    } catch {
+                        failures += 1
+                        inFlight?.cancel()
+                        inFlight = nil
+                        url = nil
+                        self.lock.withLock { self.captureToken = nil }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                }
+                inFlight?.cancel()
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     /// Sends any SSAP request and returns the raw response — the protocol
