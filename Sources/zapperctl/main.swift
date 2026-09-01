@@ -248,6 +248,76 @@ do {
         print(handedOff ? "✓ handed off to the app" : "✗ search failed")
         await device.disconnect()
 
+    case "matrix":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let combos: [(Int, Int, String, String)] = [
+            (640, 360, "JPG", "DISPLAY"),
+            (640, 360, "BMP", "DISPLAY"),
+            (640, 360, "RGB", "DISPLAY"),
+            (640, 360, "YUV422", "DISPLAY"),
+            (320, 180, "JPG", "DISPLAY"),
+            (320, 180, "YUV422", "DISPLAY"),
+            (640, 360, "JPG", "VIDEO"),
+            (640, 360, "JPG", "SCREEN"),
+            (640, 360, "JPG", "GRAPHIC"),
+        ]
+        for (w, h, format, method) in combos {
+            var cap = 0.0, fetch = 0.0, bytes = 0, ok = 0
+            for _ in 0..<4 {
+                if let r = try? await device.measureFrame(width: w, height: h, format: format, method: method) {
+                    cap += r.capture; fetch += r.fetch; bytes = r.bytes; ok += 1
+                }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+            if ok == 0 { print(String(format: "%4dx%-4d %-7s %-8s unsupported", w, h, format, method)); continue }
+            let c = cap / Double(ok), f = fetch / Double(ok)
+            print(String(format: "%4dx%-4d %-7@ %-8@ capture %.3fs fetch %.3fs -> %.1f fps seq, %.1f fps pipelined, %d KB",
+                         w, h, format as NSString, method as NSString, c, f, 1 / (c + f), 1 / max(c, f), bytes / 1024))
+        }
+        await device.disconnect()
+
+    case "probe":
+        guard args.count >= 3 else { usage() }
+        let device = try await connected(args[1])
+        let uris = try String(contentsOfFile: args[2], encoding: .utf8)
+            .split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        for uri in uris {
+            do {
+                let out = try await device.rawRequest("ssap://" + uri, json: "{}")
+                print("HIT  \(uri) -> \(out.replacingOccurrences(of: "\n", with: " ").prefix(150))")
+            } catch {
+                let text = "\(error)"
+                if !text.contains("404") { print("ERR? \(uri) -> \(text.prefix(120))") }
+            }
+        }
+        await device.disconnect()
+
+    case "par":
+        guard args.count >= 2 else { usage() }
+        let device = try await connected(args[1])
+        let n = args.count >= 3 ? Int(args[2]) ?? 4 : 4
+        // Sequential baseline
+        var t0 = Date()
+        for i in 0..<n {
+            _ = try? await device.rawRequest("ssap://com.webos.service.capture/executeOneShot",
+                json: "{\"path\":\"/tmp/par\(i).jpg\",\"method\":\"DISPLAY\",\"format\":\"JPG\",\"width\":640,\"height\":360}")
+        }
+        let seq = Date().timeIntervalSince(t0)
+        // Same work, all in flight at once
+        t0 = Date()
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<n {
+                group.addTask {
+                    _ = try? await device.rawRequest("ssap://com.webos.service.capture/executeOneShot",
+                        json: "{\"path\":\"/tmp/par\(i).jpg\",\"method\":\"DISPLAY\",\"format\":\"JPG\",\"width\":640,\"height\":360}")
+                }
+            }
+        }
+        let par = Date().timeIntervalSince(t0)
+        print(String(format: "%d captures: sequential %.2fs, concurrent %.2fs (%.1fx)", n, seq, par, seq / par))
+        await device.disconnect()
+
     case "stream":
         guard args.count >= 2 else { usage() }
         let device = try await connected(args[1])

@@ -22,6 +22,7 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
     private var reconnectTask: Task<Void, Never>?
     /// Resource token for /tmp/capture.jpg, reused across frames.
     private var captureToken: URL?
+    private var httpSession: URLSession?
     private var reconnectDelay: UInt64 = 1
     private var wantsConnection = false
 
@@ -63,6 +64,11 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
 
         await socket.close()
         await pointer.close()
+        lock.withLock {
+            httpSession?.invalidateAndCancel()
+            httpSession = nil
+            captureToken = nil
+        }
         connection.send(.disconnected)
     }
 
@@ -423,11 +429,25 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
     /// Asks the TV to encode the display straight into the token's file.
     /// Cheaper than `tv/executeOneShot`, and smaller frames encode faster —
     /// the encode is the whole cost (SSAP round trips are ~10ms).
-    private func writeFrame(width: Int, height: Int) async throws {
+    private func writeFrame(width: Int, height: Int,
+                            format: String = "JPG", method: String = "DISPLAY") async throws {
         _ = try await socket.request(SSAP.captureOneShot, payload: [
-            "path": Self.capturePath, "method": "DISPLAY", "format": "JPG",
+            "path": Self.capturePath, "method": method, "format": format,
             "width": width, "height": height,
         ])
+    }
+
+    /// Times one capture+fetch at the given settings — how the frame-rate
+    /// ceiling was mapped (JPEG encode dominates; raw formats trade encode
+    /// time for transfer size).
+    public func measureFrame(width: Int, height: Int, format: String, method: String)
+        async throws -> (capture: TimeInterval, fetch: TimeInterval, bytes: Int) {
+        let url = try await captureTokenURL()
+        let t0 = Date()
+        try await writeFrame(width: width, height: height, format: format, method: method)
+        let t1 = Date()
+        let data = try await fetchIconData(from: url)
+        return (t1.timeIntervalSince(t0), Date().timeIntervalSince(t1), data.count)
     }
 
     /// A JPEG the TV had finished writing — anything else is a torn read of
@@ -525,12 +545,25 @@ public final class WebOSDevice: RemoteDevice, @unchecked Sendable {
     /// Fetches the tile artwork a launch point advertises. The TV serves it
     /// from the same port and self-signed certificate as SSAP, so the stored
     /// pin applies here too.
-    public func fetchIconData(from url: URL) async throws -> Data {
+    /// One session for the TV's whole lifetime: a per-request session means a
+    /// fresh TLS handshake per frame, which is most of a frame fetch.
+    private func resourceSession() -> URLSession {
+        if let existing = lock.withLock({ httpSession }) { return existing }
         let currentHost = lock.withLock { host }
         let pinned = store.credentials(for: id, host: currentHost)?.value.certFingerprint
         let delegate = CertTrustDelegate(expectedFingerprint: pinned) { _ in }
-        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
+        let config = URLSessionConfiguration.ephemeral
+        // The capture token URL is the same every frame, and its bytes change
+        // underneath — caching would hand back a stale frame.
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.urlCache = nil
+        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+        lock.withLock { httpSession = session }
+        return session
+    }
+
+    public func fetchIconData(from url: URL) async throws -> Data {
+        let session = resourceSession()
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else {
             throw RemoteError.commandFailed("The TV didn't return the app's icon.")
