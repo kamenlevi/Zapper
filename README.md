@@ -70,3 +70,9 @@ zapperctl findep "friends" 1 4    # per-episode deep links
   Tokens live beside the pairing file, 0600.
 - `Sources/ZapperKit` is the device-agnostic core; `RemoteDevice` is the seam
   for adding non-LG devices.
+- Pairing keys and Spotify tokens stay on your Mac, mode 0600. No telemetry.
+  See [SECURITY.md](SECURITY.md).
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
