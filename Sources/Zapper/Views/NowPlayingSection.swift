@@ -205,7 +205,24 @@ struct NowPlayingSection: View {
             .tapPress(shape: Circle(), action)
     }
 
+    @ViewBuilder
     private var episodeStripView: some View {
+        if Showcase.isRendering {
+            // ImageRenderer can't draw ScrollView content; show the window
+            // around the current episode that the real strip scrolls to.
+            let episodes = controller.episodeStrip
+            let current = episodes.firstIndex { $0.number == controller.nowPlaying.episode } ?? 0
+            let start = max(current - 1, 0)
+            HStack(spacing: 6) {
+                ForEach(episodes[start..<min(start + 3, episodes.count)]) { episodeCard($0) }
+            }
+            .frame(height: 52, alignment: .leading)
+        } else {
+            realEpisodeStrip
+        }
+    }
+
+    private var realEpisodeStrip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {

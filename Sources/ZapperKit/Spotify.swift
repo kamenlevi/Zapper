@@ -17,6 +17,11 @@ public struct SpotifyItem: Identifiable, Hashable, Sendable {
     public let uri: String
     /// True when it came from the signed-in user's own playlists.
     public let isOwn: Bool
+
+    public init(id: String, kind: Kind, name: String, detail: String, uri: String, isOwn: Bool) {
+        self.id = id; self.kind = kind; self.name = name
+        self.detail = detail; self.uri = uri; self.isOwn = isOwn
+    }
 }
 
 /// Spotify Web API client using Authorization Code + PKCE — the user signs

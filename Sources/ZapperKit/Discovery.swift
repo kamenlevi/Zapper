@@ -19,6 +19,12 @@ public struct DiscoveredDevice: Identifiable, Hashable, Sendable {
         case appleTV                 // recognised, not yet driveable
         case unknown
     }
+
+    public init(id: String, name: String, host: String, model: String? = nil,
+                kind: Kind = .webOS, isProvisional: Bool = false) {
+        self.id = id; self.name = name; self.host = host
+        self.model = model; self.kind = kind; self.isProvisional = isProvisional
+    }
 }
 
 /// Browses Bonjour for controllable TVs.

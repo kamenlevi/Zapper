@@ -118,7 +118,20 @@ struct RemoteView: View {
         }
     }
 
+    @ViewBuilder
     private var settingsMenu: some View {
+        if Showcase.isRendering {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Palette.key, in: Circle())
+        } else {
+            realSettingsMenu
+        }
+    }
+
+    private var realSettingsMenu: some View {
         Menu {
             if controller.discovered.count > 1 || controller.currentDevice == nil {
                 Section("Devices") {
@@ -186,7 +199,20 @@ struct RemoteView: View {
                 centerTap: { controller.toggleMute() }
             )
 
-            if let volume = controller.state.volume {
+            if Showcase.isRendering, let volume = controller.state.volume {
+                GeometryReader { geo in
+                    let done = geo.size.width * CGFloat(volume) / 100
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.15)).frame(height: 4)
+                        Capsule().fill(Color.accentColor).frame(width: done, height: 4)
+                        Circle().fill(.white).frame(width: 12, height: 12)
+                            .shadow(radius: 1, y: 0.5)
+                            .offset(x: max(done - 6, 0))
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+                .frame(height: 14)
+            } else if let volume = controller.state.volume {
                 Slider(
                     value: Binding(
                         get: { controller.scrubbingVolume ?? Double(volume) },
@@ -225,7 +251,19 @@ struct RemoteView: View {
         .opacity(controller.isConnected ? 1 : 0.4)
     }
 
+    @ViewBuilder
     private var sourcesRow: some View {
+        if Showcase.isRendering {
+            HStack(spacing: 8) {
+                dropdownLabel(icon: "cable.connector", title: "Input")
+                dropdownLabel(icon: "square.grid.2x2", title: "Apps")
+            }
+        } else {
+            realSourcesRow
+        }
+    }
+
+    private var realSourcesRow: some View {
         HStack(spacing: 8) {
             Menu {
                 if controller.inputs.isEmpty {

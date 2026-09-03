@@ -237,6 +237,84 @@ final class RemoteController: ObservableObject {
         }
     }
 
+    // MARK: - Showcase renders
+
+    /// Fills in plausible state so the popover can be rendered for
+    /// screenshots without a TV on the network. Real titles and real
+    /// artwork, so the picture shows what the app actually shows.
+    func loadShowcase(kind: String) async {
+        let tv = DiscoveredDevice(
+            id: "showcase", name: "LG webOS TV OLED42C34LA", host: "192.168.1.212"
+        )
+        discovered = [tv]
+        selectedDeviceID = tv.id
+        connection = .connected
+        apps = [
+            DeviceApp(id: "com.webos.app.livetv", label: "Live TV"),
+            DeviceApp(id: "netflix", label: "Netflix"),
+            DeviceApp(id: "com.wbd.stream", label: "HBO Max"),
+            DeviceApp(id: "youtube.leanback.v4", label: "YouTube"),
+            DeviceApp(id: "spotify-beehive", label: "Spotify"),
+        ]
+        inputs = [DeviceInput(id: "HDMI_1", label: "HDMI 1")]
+        state.isOn = true
+        state.volume = 13
+        loadCachedQuickLaunch()
+
+        if kind == "search" {
+            state.currentAppID = "com.webos.app.livetv"
+            state.currentChannel = "3  Nova TV"
+            searchText = "friends"
+            let friends = ContentHit(
+                id: "ts21698", title: "Friends", year: 1994, isShow: true,
+                offers: [.init(providerName: "Netflix", url: ""),
+                         .init(providerName: "HBO Max", url: "")]
+            )
+            let college = ContentHit(
+                id: "ts80117485", title: "Friends from College", year: 2017, isShow: true,
+                offers: [.init(providerName: "Netflix", url: "")]
+            )
+            rankedSuggestions = [
+                .content(friends, nil, nil),
+                .content(college, nil, nil),
+                .spotify(SpotifyItem(id: "p1", kind: .playlist, name: "Friends",
+                                     detail: "Warner Bros. TV",
+                                     uri: "spotify:playlist:p1", isOwn: false)),
+                .spotify(SpotifyItem(id: "t1", kind: .track, name: "I'll Be There for You",
+                                     detail: "The Rembrandts",
+                                     uri: "spotify:track:t1", isOwn: false)),
+                .inAppSearch(apps[3], "friends"),
+            ]
+            suggestions = rankedSuggestions
+            return
+        }
+
+        // Now-playing panel.
+        state.currentAppID = "netflix"
+        state.isMediaPlaying = true
+        nowPlayingVisible = true
+        nowPlaying.showTitle = "Friends"
+        nowPlaying.season = 9
+        nowPlaying.episode = 20
+        nowPlaying.episodeTitle = "The One with the Soap Opera Party"
+        nowPlaying.position = 472
+        nowPlaying.duration = 1432
+        nowPlaying.syncedAt = Date()
+        episodeStrip = [
+            EpisodeInfo(number: 18, title: "The One with the Lottery", offers: []),
+            EpisodeInfo(number: 19, title: "The One with Rachel's Dream", offers: []),
+            EpisodeInfo(number: 20, title: "The One with the Soap Opera Party", offers: []),
+            EpisodeInfo(number: 21, title: "The One with the Fertility Test", offers: []),
+            EpisodeInfo(number: 22, title: "The One with the Donor", offers: []),
+        ]
+        let hits = (try? await ContentSearch.search("Friends", country: "US")) ?? []
+        if let hit = hits.first(where: { $0.isShow && $0.title == "Friends" }) ?? hits.first,
+           let url = hit.posterURL,
+           let data = try? await URLSession.shared.data(from: url).0 {
+            nowPlayingPoster = NSImage(data: data)
+        }
+    }
+
     private func autoSelectIfNeeded() {
         if let chosen = selectedDeviceID {
             if let current = discovered.first(where: { $0.id == chosen }) {

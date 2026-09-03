@@ -8,6 +8,10 @@ public struct ContentHit: Identifiable, Hashable, Sendable {
         public let providerName: String
         /// The web deep link — carries the title id the TV app needs.
         public let url: String
+
+        public init(providerName: String, url: String) {
+            self.providerName = providerName; self.url = url
+        }
     }
 
     public let id: String
@@ -30,6 +34,10 @@ public struct EpisodeInfo: Sendable, Hashable, Identifiable {
     public let title: String
     public let offers: [ContentHit.Offer]
     public var id: Int { number }
+
+    public init(number: Int, title: String, offers: [ContentHit.Offer]) {
+        self.number = number; self.title = title; self.offers = offers
+    }
 }
 
 /// Streaming availability search backed by JustWatch's public GraphQL

@@ -37,6 +37,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // results) renders content sliding over the header.
         popover.animates = false
 
+        // Screenshot mode: populate state, render, exit. No discovery, so
+        // nothing on the network is touched.
+        if let kind = ProcessInfo.processInfo.environment["ZAPPER_SHOWCASE"],
+           let path = ProcessInfo.processInfo.environment["ZAPPER_RENDER"] {
+            Showcase.isRendering = true
+            Task { @MainActor in
+                await self.controller.loadShowcase(kind: kind)
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                self.render(to: path)
+                NSApplication.shared.terminate(nil)
+            }
+            return
+        }
+
         controller.presentPreview = { [weak self] in self?.previewWindow.toggle() }
         controller.start()
 
@@ -60,11 +74,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func render(to path: String) {
+        let card = RemoteView(controller: controller)
+            .background(Color(red: 0.13, green: 0.13, blue: 0.14))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08))
+            )
         let renderer = ImageRenderer(
-            content: RemoteView(controller: controller)
-                .background(Color(nsColor: .windowBackgroundColor))
+            content: Group {
+                if Showcase.isRendering {
+                    card
+                        .padding(26)
+                        .background(Color(red: 0.06, green: 0.06, blue: 0.07))
+                } else {
+                    RemoteView(controller: controller)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                }
+            }
+            .environment(\.colorScheme, .dark)
         )
-        renderer.scale = 2
+        renderer.scale = Showcase.isRendering ? 3 : 2
 
         guard let image = renderer.nsImage,
               let tiff = image.tiffRepresentation,

@@ -33,7 +33,14 @@ struct SearchSection: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            TextField("Channels, apps, shows…", text: $controller.searchText)
+            if Showcase.isRendering {
+                // ImageRenderer draws AppKit-backed controls as placeholders.
+                Text(controller.searchText.isEmpty ? "Channels, apps, shows…" : controller.searchText)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(controller.searchText.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                TextField("Channels, apps, shows…", text: $controller.searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($focused)
@@ -45,6 +52,7 @@ struct SearchSection: View {
                     controller.clearSearch()
                     return .handled
                 }
+            }
 
             if !controller.searchText.isEmpty {
                 Image(systemName: "xmark.circle.fill")
