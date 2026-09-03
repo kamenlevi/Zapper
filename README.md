@@ -3,6 +3,13 @@
 macOS menu bar remote for LG webOS TVs. Finds the TV over Bonjour, drives it
 over SSAP — no HomeKit, no LG account.
 
+<p align="center">
+  <img src="Resources/screenshot-search.png" width="330"
+       alt="Search for a show and see which of your apps have it">
+  <img src="Resources/screenshot-nowplaying.png" width="330"
+       alt="Now playing: poster, live progress and the episodes around it">
+</p>
+
 ## Features
 
 - **Search everything from one bar** (auto-focused — just start typing):
