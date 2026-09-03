@@ -244,7 +244,7 @@ final class RemoteController: ObservableObject {
     /// artwork, so the picture shows what the app actually shows.
     func loadShowcase(kind: String) async {
         let tv = DiscoveredDevice(
-            id: "showcase", name: "LG webOS TV OLED42C34LA", host: "192.168.1.212"
+            id: "showcase", name: "LG webOS TV OLED42C34LA", host: "192.168.1.50"
         )
         discovered = [tv]
         selectedDeviceID = tv.id

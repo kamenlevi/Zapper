@@ -100,7 +100,7 @@ public enum WakeOnLAN {
         process.waitUntilExit()
 
         guard let output = String(data: data, encoding: .utf8) else { return nil }
-        // e.g. "? (192.168.1.212) at 20:28:bc:a8:2:68 on en0 ifscope [ethernet]"
+        // e.g. "? (192.168.1.50) at aa:bb:cc:dd:ee:ff on en0 ifscope [ethernet]"
         guard let atRange = output.range(of: " at ") else { return nil }
         let rest = output[atRange.upperBound...]
         guard let end = rest.firstIndex(of: " ") else { return nil }

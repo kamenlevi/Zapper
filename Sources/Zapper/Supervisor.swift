@@ -9,10 +9,15 @@ import ZapperKit
 /// watches the screen and pushes through whatever appears.
 extension RemoteController {
 
-    static let netflixProfileKey = "Zapper.netflixProfileName"
+    static let profileKey = "Zapper.profileName"
 
-    var netflixProfileName: String {
-        UserDefaults.standard.string(forKey: Self.netflixProfileKey) ?? "kamenlevi"
+    /// The profile to pick when an app asks who's watching. Unset means
+    /// "accept whichever profile the app highlights first", which is what a
+    /// single-profile account wants — so nothing is assumed about the user.
+    var profileName: String? {
+        let stored = UserDefaults.standard.string(forKey: Self.profileKey)?
+            .trimmingCharacters(in: .whitespaces)
+        return stored?.isEmpty == false ? stored : nil
     }
 
     /// Kicks off playback via the mechanism that works for the app, then
@@ -76,7 +81,12 @@ extension RemoteController {
     /// confirms. Focus starts on the leftmost profile; the OCR boxes tell us
     /// how many steps right the target is.
     func selectProfile(among lines: [ScreenText.Line]) async {
-        let target = netflixProfileName.searchNormalized
+        guard let profileName else {
+            // No preference set: take the focused (default) profile.
+            press(.ok)
+            return
+        }
+        let target = profileName.searchNormalized
         let candidates = lines.filter { line in
             let lower = line.text.lowercased()
             return line.text.count <= 20
@@ -104,12 +114,16 @@ extension RemoteController {
         flash("Picked the \(hit.text) profile.")
     }
 
-    func promptForNetflixProfile() {
+    func promptForProfile() {
         let alert = NSAlert()
-        alert.messageText = "Netflix Profile"
-        alert.informativeText = "The profile Zapper selects when Netflix asks who's watching."
+        alert.messageText = "Streaming Profile"
+        alert.informativeText = """
+        The profile Zapper picks when an app asks who's watching. Leave it \
+        blank to accept whichever profile the app highlights first.
+        """
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        field.stringValue = netflixProfileName
+        field.placeholderString = "Profile name"
+        field.stringValue = profileName ?? ""
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         alert.addButton(withTitle: "Save")
@@ -118,7 +132,7 @@ extension RemoteController {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         UserDefaults.standard.set(
             field.stringValue.trimmingCharacters(in: .whitespaces),
-            forKey: Self.netflixProfileKey
+            forKey: Self.profileKey
         )
     }
 }

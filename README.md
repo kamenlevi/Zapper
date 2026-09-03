@@ -34,7 +34,11 @@ cp -r build/Zapper.app /Applications && open /Applications/Zapper.app
 
 First run: allow **Local Network** access, then accept the pairing prompt on
 the TV (once). Pairing and the TV's pinned certificate live in
-`~/Library/Application Support/Zapper/devices.json`.
+`~/Library/Application Support/Zapper/devices.json` (mode 0600) — nothing
+about your TV or accounts is stored in this repo.
+
+If an app asks which profile is watching, Zapper takes the highlighted one;
+set a specific profile under **⋯ → Streaming Profile…**.
 
 ## CLI
 
@@ -42,9 +46,9 @@ the TV (once). Pairing and the TV's pinned certificate live in
 
 ```sh
 zapperctl discover
-zapperctl key 192.168.1.212 ok
-zapperctl channel 192.168.1.212 124
-zapperctl launch 192.168.1.212 netflix [deep-link-url]
+zapperctl key <tv-ip> ok
+zapperctl channel <tv-ip> 124
+zapperctl launch <tv-ip> netflix [deep-link-url]
 zapperctl find "friends"          # streaming availability search
 zapperctl findep "friends" 1 4    # per-episode deep links
 ```
